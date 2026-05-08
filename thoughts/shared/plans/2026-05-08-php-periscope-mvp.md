@@ -807,6 +807,27 @@ Files:
 
 The daemon serves the built `ui/dist/` over HTTP on `localhost:9999` and exposes a WebSocket at `/ws` that streams session events from Rust to the browser. Same protocol on the wire as DAP-internal events, but JSON for browser consumption.
 
+### Phase 9b cross-cutting UI features (added during Phase 5c implementation review)
+
+These features operate on the data the Phase 5 watchers already emit; no new C-extension or adapter work is required.
+
+#### Event grouping / de-dup
+- The daemon (Phase 6) computes a fingerprint per event = `(type, sha1(canonicalised_payload))`.
+- `/api/traces/{id}/events?group=true` returns `{fingerprint, count, first_at, last_at, sample_event_ids: [...]}` rows.
+- UI panels (logs, queries, model, exceptions, n+1, ai_suggestion) render as collapsed rows: `[12×] connection refused`, with an "expand all 12" disclosure that lists each occurrence + its call-site link.
+- Critically: the raw trace is untouched — time-travel scrubbing still walks every event in order. Grouping is a *view*, not a *capture*.
+
+#### Datadog-style payload filtering
+- `GET /api/traces/{id}/events?type=log&filter=<expr>` accepts a small JSON-path query language: `payload.level:error AND payload.context.user_id:42 AND payload.message:"connection refused"`.
+- Each panel has a free-text filter bar wired to the same endpoint. Saved filters per project (sidebar bookmarks).
+- Works against any panel because every emitted payload is already a structured JSON tree.
+
+#### Failed-jobs panel
+- Reads Laravel's `failed_jobs` table via a daemon endpoint (`GET /api/failed-jobs`) — we don't shadow Laravel's storage.
+- Per row: stack trace + AI suggestion (already emitted by ExceptionHook + AiAdvisor), originating-request deep link (the trace where JobHook recorded `phase=queued`), attempts, queue/connection, first/last failure timestamps.
+- Actions: retry (single, bulk-by-class, bulk-by-exception), forget, retry-with-edited-payload.
+- Differentiators: time-travel into the failed run's recorded trace, diff vs last successful run of the same class, pattern-grouped failures across last 24h, AI verdict "code at `Foo.php:42` still has the bug — retry anyway?", one-click Pest repro generator.
+
 ### Success Criteria
 
 #### Automated Verification (9a):
@@ -876,6 +897,8 @@ Record baseline timings for each app's standard route (with and without extensio
 ### Overview
 
 Make installation a single command on macOS and Linux.
+
+**MCP shipping decision (locked-in 2026-05-08 during 5c):** the MCP server ships as a `php artisan periscope:mcp` command inside the Laravel adapter, built on **`laravel/mcp`** (Laravel 13's first-party MCP SDK). NO separate Rust `periscope-mcp` binary. Users get `claude mcp add periscope -- php artisan periscope:mcp` and the tool registration works.
 
 ### Changes Required
 
@@ -1303,7 +1326,13 @@ struct ObservabilityEvent {
    - `GET /api/traces/{id}/exceptions` — any exceptions thrown
    - `GET /api/traces/{id}/insights` — **deterministic** heuristics: N+1 detection, DB-in-loop, slow-frame ranking, memory hog detection. Independent of any AI.
 
-2. **MCP server** — Anthropic's protocol for tool servers, supported by Claude Code natively. Ship a separate `periscope-mcp` binary (or sub-command of daemon) that speaks MCP over stdio. Tools to expose:
+2. **MCP server** — Anthropic's protocol for tool servers, supported by Claude Code natively. **Ship as a `php artisan periscope:mcp` command in the Laravel adapter using `laravel/mcp` (Laravel 13's first-party MCP SDK)** — NOT a separate Rust binary. This means:
+   - No extra binary to distribute / install — already in the Composer package.
+   - Laravel-native tool registration (PHP attributes on tool methods).
+   - Works with Claude Code / Cursor / any MCP client over stdio out of the box.
+   - The Rust daemon's scope stays narrow (DAP + replay + UI HTTP only).
+
+   Tools to expose:
    - `list_traces(limit?)` — recent traces
    - `get_trace(id)` — full trace
    - `find_traces(uri_pattern, status_code?, has_exception?)` — search
@@ -1311,6 +1340,10 @@ struct ObservabilityEvent {
    - `get_frame(trace_id, frame_id)` — drill in
    - `get_variable(trace_id, frame_id, name)` — specific local at point in time
    - `diff_frames(trace_id, frame_a, frame_b)` — what changed between two frames
+
+3. **In-trace AI advisories (Phase 5c — done)** — opt-in `AiAdvisor` in the Laravel adapter calls **`laravel/ai`** (Laravel 13's first-party SDK, suggests dependency) when enabled. Emits `ai_suggestion` events for slow queries, N+1 patterns, exceptions, and error logs — kind-specific system prompts, hard-capped per request, errors swallowed. Provider-agnostic via the SDK: OpenAI, Anthropic, Gemini, Ollama (free-local), OpenRouter (free-tier), DeepSeek, Groq, Mistral, xAI, Azure, Bedrock — same code, switch via `.env`. We do not roll our own HTTP client / provider abstraction.
+
+4. **AI introspection of the host Laravel app (Phase 5d / 10)** — pair periscope traces with **`laravel/boost`** in real-world test apps so the AI agent reading our trace also has live access to the host app's routes / DB / models / config. Periscope = "what happened during this request"; boost = "what is this app's structure right now". Together = "complete Laravel context for the AI."
 
 **Patterns the deterministic insights endpoint detects (Phase 6)**:
 

@@ -7,8 +7,16 @@ use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Periscope\Laravel\Bridge\ExtensionBridge;
+use Periscope\Laravel\Detection\AiAdvisor;
+use Periscope\Laravel\Detection\NPlusOneDetector;
+use Periscope\Laravel\Detection\SlowQueryAnalyzer;
 use Periscope\Laravel\Hooks\QueryHook;
 use Periscope\Laravel\Support\CallSiteResolver;
+
+function periscopeDisabledAi(ExtensionBridge $bridge): AiAdvisor
+{
+    return new AiAdvisor(bridge: $bridge, enabled: false, maxPerRequest: 3);
+}
 
 it('attaches a DB::listen handler when registered', function (): void {
     $bridge = new ExtensionBridge(enabled: true);
@@ -20,6 +28,9 @@ it('attaches a DB::listen handler when registered', function (): void {
         bridge: $bridge,
         callSites: new CallSiteResolver(snippetLines: 0),
         db: app(DatabaseManager::class),
+        nPlusOne: new NPlusOneDetector($bridge),
+        slowAnalyzer: new SlowQueryAnalyzer($bridge),
+        aiAdvisor: periscopeDisabledAi($bridge),
         slowQueryMs: 100,
     );
 
@@ -47,6 +58,9 @@ it('flags a query as slow above the configured threshold', function (): void {
         bridge: $bridge,
         callSites: new CallSiteResolver(snippetLines: 0),
         db: app(DatabaseManager::class),
+        nPlusOne: new NPlusOneDetector($bridge),
+        slowAnalyzer: new SlowQueryAnalyzer($bridge),
+        aiAdvisor: periscopeDisabledAi($bridge),
         slowQueryMs: 100,
     );
     $hook->register();
@@ -54,7 +68,7 @@ it('flags a query as slow above the configured threshold', function (): void {
     // Manually fire a QueryExecuted event with time = 250ms
     $connection = DB::connection();
     Event::dispatch(new QueryExecuted(
-        sql: 'SELECT * FROM users WHERE id = ?',
+        sql: 'SELECT id FROM users WHERE id = ?',
         bindings: [42],
         time: 250.0,
         connection: $connection,
@@ -62,7 +76,7 @@ it('flags a query as slow above the configured threshold', function (): void {
 
     expect($bridge->lastPayload)
         ->not->toBeNull()
-        ->and($bridge->lastPayload['sql'])->toBe('SELECT * FROM users WHERE id = ?')
+        ->and($bridge->lastPayload['sql'])->toBe('SELECT id FROM users WHERE id = ?')
         ->and($bridge->lastPayload['bindings'])->toBe([42])
         ->and($bridge->lastPayload['time_ms'])->toBe(250.0)
         ->and($bridge->lastPayload['slow'])->toBeTrue();
@@ -85,6 +99,9 @@ it('does not flag a query as slow below the threshold', function (): void {
         bridge: $bridge,
         callSites: new CallSiteResolver(snippetLines: 0),
         db: app(DatabaseManager::class),
+        nPlusOne: new NPlusOneDetector($bridge),
+        slowAnalyzer: new SlowQueryAnalyzer($bridge),
+        aiAdvisor: periscopeDisabledAi($bridge),
         slowQueryMs: 100,
     );
     $hook->register();
@@ -116,6 +133,9 @@ it('normalises DateTimeInterface bindings to ISO-8601 strings', function (): voi
         bridge: $bridge,
         callSites: new CallSiteResolver(snippetLines: 0),
         db: app(DatabaseManager::class),
+        nPlusOne: new NPlusOneDetector($bridge),
+        slowAnalyzer: new SlowQueryAnalyzer($bridge),
+        aiAdvisor: periscopeDisabledAi($bridge),
         slowQueryMs: 100,
     );
     $hook->register();

@@ -75,6 +75,44 @@ return [
     | When walking the backtrace to find the topmost user-code frame,
     | skip frames whose file path contains any of these substrings.
     */
+    /*
+    |---------------------------------------------------------------------
+    | AI advisor (opt-in)
+    |---------------------------------------------------------------------
+    | Off by default. When enabled, the AiAdvisor calls Laravel 13's
+    | first-party AI SDK (`laravel/ai`) for every slow query, N+1 pattern,
+    | reportable exception, and error-level log line — emitting an
+    | `ai_suggestion` event with concrete fixes.
+    |
+    | All provider / model / key settings live in `config/ai.php` (the
+    | laravel/ai SDK's own config). We don't shadow them here. Pick any
+    | provider via `php artisan ai:install` — OpenAI, Anthropic, Gemini,
+    | Ollama (free-local), OpenRouter (free-tier), DeepSeek, Groq, etc.
+    |
+    | Periscope only owns:
+    |   - the per-request rate cap (so a burst can't blow your budget)
+    |   - the on/off switch
+    |
+    | To enable:
+    |   1. composer require laravel/ai
+    |   2. php artisan ai:install   (configures provider + key)
+    |   3. PERISCOPE_AI_ENABLED=true in .env
+    */
+    'ai' => [
+        'enabled'                     => (bool) env('PERISCOPE_AI_ENABLED', false),
+        'max_suggestions_per_request' => (int)  env('PERISCOPE_AI_MAX_SUGGESTIONS', 3),
+    ],
+
+    /*
+    |---------------------------------------------------------------------
+    | N+1 detector threshold
+    |---------------------------------------------------------------------
+    | Same SQL pattern executing this many times in one request flips on
+    | an `n_plus_one_warning`. Default 4 — high enough to skip casual
+    | duplicates, low enough to catch list-rendering N+1s.
+    */
+    'n_plus_one_threshold' => (int) env('PERISCOPE_N_PLUS_ONE_THRESHOLD', 4),
+
     'vendor_skip' => [
         '/vendor/laravel/',
         '/vendor/illuminate/',

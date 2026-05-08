@@ -6,13 +6,16 @@
     "keywords": ["laravel", "debugging", "observability", "telescope", "debugbar", "xdebug", "periscope"],
     "require": {
         "php": "^8.3",
-        "illuminate/contracts": "^11.0 || ^12.0",
-        "illuminate/support": "^11.0 || ^12.0"
+        "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
+        "illuminate/support": "^11.0 || ^12.0 || ^13.0"
     },
     "require-dev": {
         "orchestra/testbench": "^9.0 || ^10.0",
         "pestphp/pest": "^3.0",
         "pestphp/pest-plugin-laravel": "^3.0"
+    },
+    "suggest": {
+        "laravel/ai": "Enables AI-powered slow-query / N+1 / exception / error-log advisories via the AiAdvisor. Picks any provider — Ollama (free), OpenRouter (free tier), OpenAI, Anthropic, Gemini, Groq, etc."
     },
     "autoload": {
         "psr-4": {
