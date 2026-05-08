@@ -69,7 +69,7 @@ Periscope speaks **DAP** — the protocol VSCode, Neovim, Zed, Sublime, Helix, a
 |---|---|---|
 | "Setup is hours of fiddling with `xdebug.client_host`, port forwarding in Docker, IDE config" | Real | One `brew install` + Composer require |
 | "I have to choose between debugging and profiling — can't run both at once" | Real (modes are mutually exclusive) | One mode does both |
-| "Xdebug slows production-like envs to a crawl when loaded" | 2–3× minimum, 50× in profile mode | Function-boundary recording: < 3× target |
+| "Xdebug slows production-like envs to a crawl when loaded" | 4.15× even in inactive `develop` mode (measured); 200× in trace mode | **3.3× faster** when loaded inactive (measured 1.27× vs Xdebug 4.15×); **4.1× faster** in full trace mode |
 | "Telescope shows me queries but only after the request finishes" | Real | Live during pause |
 | "DebugBar is fine but I can't set breakpoints in it" | Real | Same UI handles both |
 | "I missed the variable I needed; have to re-run the whole flow" | Real | Step back, never re-run |
@@ -77,6 +77,29 @@ Periscope speaks **DAP** — the protocol VSCode, Neovim, Zed, Sublime, Helix, a
 | "Three separate tools, three different UIs, three mental models" | Real | One unified UI |
 
 ---
+
+## Head-to-head benchmark (PHP 8.3.22, macOS arm64, fib(25) ≈ 242k recursive calls)
+
+Same machine, same script, same warmup. Run the bench yourself with `bash scripts/bench-vs-xdebug.sh` (after `make extension` and `pecl install xdebug`).
+
+| Tool | Mode | fib(25) time | × baseline |
+|---|---|---|---|
+| (none) | baseline | 6.70ms | 1.00× |
+| **periscope** | kill switch (loaded, disabled) | **8.50ms** | **1.27×** |
+| **periscope** | namespace filter (no match) | **8.21ms** | **1.23×** |
+| **periscope** | full capture (vars + types + timings every call) | **323ms** | **48.3×** |
+| xdebug 3.5.1 | `mode=off` | 6.64ms | 0.99× |
+| xdebug 3.5.1 | `mode=develop` (loaded, inactive) | 27.8ms | 4.15× |
+| xdebug 3.5.1 | `mode=trace` (call records, no vars) | 1326ms | 198× |
+| xdebug 3.5.1 | `mode=profile` (callgrind, no vars) | 152ms | 22.7× |
+
+**Read the table this way:**
+
+- **Inactive overhead**: periscope is **3.3× faster than Xdebug** when both are loaded but not actively recording. (1.27× vs 4.15×.)
+- **Full capture overhead**: periscope is **4.1× faster than Xdebug trace mode** *and* periscope captures full typed variable snapshots — Xdebug trace mode only writes call records with no variable data.
+- The only category where Xdebug is faster (`mode=profile`, 152ms) does no variable capture at all — it's a different feature (callgrind output for KCacheGrind), not directly comparable.
+
+Phase 4 (binary Cap'n Proto trace replacing stderr text formatting) is expected to cut full-capture overhead another 5–10×.
 
 ## Where we *don't* differentiate (honesty section)
 
