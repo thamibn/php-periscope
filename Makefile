@@ -1,4 +1,6 @@
-.PHONY: extension extension-clean clean test test-phpt smoke proto-gen help
+.PHONY: extension extension-clean clean test test-phpt smoke proto-gen trace-clean help
+
+PERISCOPE_TRACE_DIR ?= /tmp/periscope
 
 PHP_CONFIG ?= $(shell which php-config)
 CAPNP      ?= $(shell which capnp)
@@ -10,6 +12,7 @@ help:
 	@echo "  make extension-clean  Remove build artifacts in extension/"
 	@echo "  make clean            Full clean"
 	@echo "  make test             Run the test suite"
+	@echo "  make trace-clean      Delete all .cptrace files in PERISCOPE_TRACE_DIR ($(PERISCOPE_TRACE_DIR))"
 
 proto-gen:
 	@if [ -z "$(CAPNP)" ]; then \
@@ -38,3 +41,12 @@ clean: extension-clean
 test:
 	cd extension && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 $(MAKE) test TESTS="tests/"
 	@bash scripts/smoke.sh
+
+trace-clean:
+	@if [ -d "$(PERISCOPE_TRACE_DIR)" ]; then \
+	  count=$$(find "$(PERISCOPE_TRACE_DIR)" -maxdepth 1 -name '*.cptrace' | wc -l | tr -d ' '); \
+	  find "$(PERISCOPE_TRACE_DIR)" -maxdepth 1 -name '*.cptrace' -delete; \
+	  echo "removed $$count trace(s) from $(PERISCOPE_TRACE_DIR)"; \
+	else \
+	  echo "no trace dir at $(PERISCOPE_TRACE_DIR)"; \
+	fi

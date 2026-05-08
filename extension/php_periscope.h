@@ -23,6 +23,8 @@ ZEND_BEGIN_MODULE_GLOBALS(periscope)
     zend_long max_object_props;
     char *namespace_filter;
     char *trace_dir;          /* empty/NULL = no on-disk trace */
+    zend_long max_traces;     /* keep newest N; 0 = unlimited */
+    zend_long max_trace_age_seconds;  /* delete older; 0 = never expire */
 
     /* Runtime */
     int  depth;

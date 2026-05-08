@@ -15,6 +15,8 @@
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <dirent.h>
 #include <unistd.h>
 
 #include "php_periscope.h"
@@ -37,6 +39,8 @@ PHP_INI_BEGIN()
     STD_PHP_INI_ENTRY  ("periscope.max_object_props", "50", PHP_INI_ALL,                   OnUpdateLong,   max_object_props,  zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.namespace_filter",  "",  PHP_INI_ALL,                   OnUpdateString, namespace_filter,  zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.trace_dir",         "",  PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateString, trace_dir,        zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.max_traces",      "100", PHP_INI_ALL,                   OnUpdateLong,   max_traces,        zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.max_trace_age_seconds", "86400", PHP_INI_ALL,           OnUpdateLong,   max_trace_age_seconds, zend_periscope_globals, periscope_globals)
 PHP_INI_END()
 
 static void php_periscope_init_globals(zend_periscope_globals *g)
@@ -50,6 +54,8 @@ static void php_periscope_init_globals(zend_periscope_globals *g)
     g->max_object_props  = 50;
     g->namespace_filter  = NULL;
     g->trace_dir         = NULL;
+    g->max_traces        = 100;
+    g->max_trace_age_seconds = 86400;
     g->trace             = NULL;
     g->next_frame_id     = 0;
     g->request_start_us  = 0;
@@ -130,6 +136,86 @@ static char *render_value_summary(const zval *value,
     char *out = s.s ? strdup(ZSTR_VAL(s.s)) : strdup("");
     smart_str_free(&s);
     return out;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Trace retention                                                           */
+/* ------------------------------------------------------------------------ */
+
+typedef struct {
+    char path[1024];
+    time_t mtime;
+} periscope_trace_entry_t;
+
+static int trace_entry_cmp_newest_first(const void *a, const void *b)
+{
+    time_t ma = ((const periscope_trace_entry_t *)a)->mtime;
+    time_t mb = ((const periscope_trace_entry_t *)b)->mtime;
+    if (ma > mb) return -1;
+    if (ma < mb) return  1;
+    return 0;
+}
+
+/* Sweep dir, deleting .cptrace files older than max_age_secs and any beyond
+ * the newest max_keep entries. Best-effort; failures are silent (a failed
+ * unlink shouldn't take down a debug session). */
+static void periscope_trace_retention_sweep(const char *dir,
+                                            long max_keep,
+                                            long max_age_secs)
+{
+    if (!dir || !*dir) return;
+    if (max_keep <= 0 && max_age_secs <= 0) return;
+
+    DIR *d = opendir(dir);
+    if (!d) return;
+
+    /* Bounded scratch — we keep at most 4096 entries. Anyone with more than
+     * that already needs manual cleanup. */
+    enum { MAX_SCAN = 4096 };
+    periscope_trace_entry_t *entries = (periscope_trace_entry_t *)
+        emalloc(sizeof(periscope_trace_entry_t) * MAX_SCAN);
+    if (!entries) {
+        closedir(d);
+        return;
+    }
+    size_t n = 0;
+    time_t now = time(NULL);
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL && n < MAX_SCAN) {
+        const char *name = ent->d_name;
+        size_t name_len = strlen(name);
+        if (name_len < 9) continue;
+        if (memcmp(name + name_len - 8, ".cptrace", 8) != 0) continue;
+
+        char full[1024];
+        int written = snprintf(full, sizeof(full), "%s/%s", dir, name);
+        if (written <= 0 || (size_t)written >= sizeof(full)) continue;
+
+        struct stat st;
+        if (stat(full, &st) != 0) continue;
+        if (!S_ISREG(st.st_mode)) continue;
+
+        /* Age-based deletion happens up front so it doesn't count toward keep cap */
+        if (max_age_secs > 0 && (now - st.st_mtime) > max_age_secs) {
+            unlink(full);
+            continue;
+        }
+
+        memcpy(entries[n].path, full, (size_t)written + 1);
+        entries[n].mtime = st.st_mtime;
+        n++;
+    }
+    closedir(d);
+
+    if (max_keep > 0 && n > (size_t)max_keep) {
+        qsort(entries, n, sizeof(*entries), trace_entry_cmp_newest_first);
+        for (size_t i = (size_t)max_keep; i < n; i++) {
+            unlink(entries[i].path);
+        }
+    }
+
+    efree(entries);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -294,6 +380,12 @@ static PHP_RINIT_FUNCTION(periscope)
     PERISCOPE_G(trace) = NULL;
     const char *trace_dir = PERISCOPE_G(trace_dir);
     if (trace_dir && trace_dir[0] != '\0' && !PERISCOPE_G(disabled)) {
+        /* Cheap retention sweep before we add another trace */
+        periscope_trace_retention_sweep(
+            trace_dir,
+            (long)PERISCOPE_G(max_traces),
+            (long)PERISCOPE_G(max_trace_age_seconds));
+
         char cwd[1024];
         if (getcwd(cwd, sizeof(cwd)) == NULL) cwd[0] = '\0';
 

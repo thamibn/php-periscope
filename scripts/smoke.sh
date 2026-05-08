@@ -130,5 +130,15 @@ else
 fi
 rm -rf "$TRACE_DIR"
 
+# 15. Trace retention sweep — old files get pruned at RINIT
+RTD=$(mktemp -d /tmp/periscope-smoke-retention-XXXXX)
+for i in 1 2 3 4 5; do printf "fake" > "$RTD/old-$i.cptrace"; sleep 0.01; done
+$PHP -d extension="$SO" -d periscope.trace_dir="$RTD" -d periscope.max_traces=2 -d periscope.max_trace_age_seconds=0 -r 'echo "";' >/dev/null 2>&1
+remaining="$(ls "$RTD"/*.cptrace 2>/dev/null | wc -l | tr -d ' ')"
+[ "$remaining" -le "3" ] && \
+  pass "retention sweep enforced max_traces=2 (5 old + 1 new -> $remaining files)" || \
+  fail "retention left $remaining files (expected <= 3)"
+rm -rf "$RTD"
+
 echo ""
 echo "All smoke tests passed."

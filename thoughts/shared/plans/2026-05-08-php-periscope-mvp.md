@@ -1,10 +1,30 @@
 # php-periscope MVP Implementation Plan
 
-**Date:** 2026-05-08
+**Date:** 2026-05-08 (last updated 2026-05-08 with AI-native + retention additions)
 **Author:** Thamsanca Ntuli (with Claude Code)
 **Project:** php-periscope — live observability + time-travel debugger for PHP/Laravel
-**Status:** Draft v1 — ready to start Phase 1
-**Tagline:** *See into your PHP request.*
+**Status:** v1 in progress — Phases 1–4 landed, Phase 5 next
+**Tagline:** *See into your PHP request — your AI co-pilot does too.*
+
+## Cross-cutting requirements (added during implementation)
+
+These are not phases on their own; each is folded into existing phases below with
+the relevant bullets called out under that phase's "added requirement" headings.
+Listed here so the full set is visible at a glance.
+
+1. **AI-native trace access** — every trace must be queryable by AI dev tools (Claude Code, Cursor, Codex, Continue, aider). Three delivery channels: `--json` mode on the dump CLI (Phase 4), HTTP REST API (Phase 6), MCP server (Phase 11). Plus deterministic insights (N+1, DB-in-loop, slow-frame, memory hog) at `/api/traces/{id}/insights`. AI then *interprets* the structured insights and recommends fixes. Marketing line: *"Your AI co-pilot reads every request and tells you what's wrong — N+1 queries, slow frames, lost auth state, memory hogs — before you even know to look."*
+
+2. **Request + response envelope in trace** — URL, method, headers, cookies, query, POST body, raw body, files, response status + body + headers. Framework-agnostic capture in C extension (Phase 4 schema, Phase 5 implementation). Laravel adapter enriches with route, auth user, session (Phase 5).
+
+3. **Call-site for every observability event** — every SQL, log, cache, redis, http, job, mail event must carry `userCallSite { file, line, snippet, frameStack }`. UI shows "this query came from `ListingResource.php:42` in line `'agency' => $this->agency,`" with deep-link to IDE. (Phase 5.)
+
+4. **Trace retention** — `periscope.max_traces` (default 100) + `periscope.max_trace_age_seconds` (default 86400) sweep at RINIT. Manual `make trace-clean`. Documented as ephemeral with privacy warning. (Phase 4 — done.)
+
+5. **Adaptive UI** — only render panels that have non-zero events in the current trace. Plain PHP project = Source/Variables/Stack/Timeline/Logs only. Laravel = all panels light up. Symfony adapter (later) emits same event types so UI stays uniform. (Phase 9.)
+
+6. **Framework-agnostic core, opt-in adapters** — C extension never references Laravel/Symfony/WordPress. Per-framework Composer packages handle detection via service-provider auto-discovery. v1 ships only Laravel adapter; others are post-v1.
+
+7. **No end-user toolchain** — distribution ships precompiled bottles via brew/PECL. End users never need Rust, C++, capnp, or a compiler. Maintainers + CI handle the build. (Phase 11.)
 
 ---
 
@@ -1049,6 +1069,170 @@ What to actually do this week and next, ordered. If you do nothing else, do thes
 - [ ] Get ASan-clean
 
 End of Week 2: extension loads, observes every userland function call, captures primitive arguments. ~10% of total MVP work, but the riskiest 10% is now de-risked.
+
+---
+
+## Appendix A: Decisions & Conventions Captured During Implementation
+
+This appendix consolidates everything from the project's persistent memory (`/.claude/projects/.../memory/*.md`) so the plan is the single source of truth. Each subsection explains the rule, the reason, and where in the phase plan it applies.
+
+### A.1 — Framework detection is the adapter's job, not the C extension's
+
+**Rule:** The C extension stays framework-agnostic. Per-framework hooks (Laravel queries, Symfony events, WordPress actions) live in opt-in Composer adapter packages.
+
+**Why:** Loading Laravel-aware hooks into a Symfony or CodeIgniter project would crash or produce noise. Also enforced by CLAUDE.md invariant #8 — *"No Laravel-version-specific code in `extension/`."*
+
+**Layers:**
+
+- Layer 1 — **C extension** (`extension/`): observes every userland function call via Zend Observer API. No framework checks. Same `.so` works on Laravel, Symfony, CodeIgniter, WordPress, Magento, plain PHP.
+- Layer 2 — **Composer adapter packages** (`laravel-adapter/` first, others later): detect their host framework by *being installed in it*. Laravel adapter registers a `PeriscopeServiceProvider` that only fires when Laravel boots its container. A WordPress adapter would hook `plugins_loaded`. Each adapter is responsible for its own "am I in the right project?" detection.
+- Layer 3 — **Daemon + UI**: framework-agnostic. They render whatever events arrive in the trace.
+
+**Result:** the user installs the C extension globally (one brew install), and per-project they `composer require` the adapter that matches their framework — or no adapter at all and still get raw function-call observation. v1 only ships the Laravel adapter.
+
+**Do not** add a `periscope.framework=laravel|symfony|...` INI knob in the C extension to gate behaviour.
+
+### A.2 — Adaptive UI: only render panels for event types in the trace
+
+**Rule:** When designing/building the browser UI in Phase 9, only render panels for event types that actually exist in the current trace.
+
+**Rules:**
+
+- If the trace has zero `sql_query` events → no SQL panel.
+- If the trace has zero `dispatched_job` events → no Jobs panel.
+- If the trace has zero `mail_sent` events → no Mail panel.
+- Same for cache, redis, http, queue, events.
+- The minimum-always-shown panels: Source, Variables/Scope, Call Stack, Timeline, Logs (every PHP project has logs).
+- Plain-PHP / no-framework session → only the minimum panels appear; UI stays clean.
+- Laravel session with the adapter → all relevant panels light up automatically.
+
+The trace is the source of truth. Don't gate panel visibility on a `framework` field — gate it on `events.some(e => e.type === 'sql_query')`. That way a hand-rolled Symfony adapter that emits `sql_query` events gets the SQL panel for free.
+
+User's framing: *"smart and adaptive — not cluttered with useless features the project does not benefit from."*
+
+### A.3 — Collection-shaped objects rendering (Laravel Collection, Doctrine, etc.)
+
+Phase 3 already captures them functionally — internal `$items` array is dumped as a normal private property: `object(Collection)#7 {-items: array(N) [...]}`. The data is all there.
+
+Cosmetic improvements to render them more naturally are framework-adapter / UI work, not C-extension work:
+
+- **Laravel adapter (Phase 5)**: emit a hint event/attribute marking instances of `Illuminate\Support\Collection`, `Illuminate\Database\Eloquent\Collection`, `LazyCollection`.
+- **UI (Phase 9b)**: when a captured object's class is in a known "collection" allowlist (Laravel, Doctrine, generators), render as `Collection(N) [items...]` instead of `object(Collection)#X {-items: [...]}`.
+- **Doctrine `PersistentCollection`**: detect lazy/uninitialized state via the existing `<lazy>` path (already works because Doctrine collections use `__get` for lazy-load).
+
+### A.4 — Trace MUST capture full HTTP request envelope (URL, headers, cookies, body, session, response)
+
+**Rule:** Every recorded trace needs the full incoming request and response captured at the framework-agnostic level, with framework adapter enrichment on top.
+
+**Why:** Without request context the timeline is half-blind. Looking at `User::find($id)` is meaningless without knowing what URL/route/headers triggered it. This is the first thing any developer expects in a debugger UI.
+
+**Phase 4 — Trace schema additions** (`proto/trace.capnp`): `Request` struct (method, uri, headers, cookies, query, postParams, rawBody capped, files, remoteAddr, scheme), `Response` struct (statusCode, headers, body, durationMicros, peakMemoryBytes), both attached to `Meta`. (Schema landed in Phase 4.)
+
+**Phase 4 — C extension capture** (`extension/periscope_request.c`): read at RINIT (request data) and RSHUTDOWN (response data), framework-agnostic — `$_SERVER`, `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `php://input` for raw body, `http_response_code()` and `headers_list()` at shutdown. Skip when SAPI is `cli`.
+
+**Phase 5 — Laravel adapter enrichment** (`laravel-adapter/src/Hooks/RequestHook.php`): emit a `requestResolved` event with route name, controller@method, route parameters, authenticated user, session info, CSRF token presence, validation errors, locale.
+
+**Phase 9 UI:**
+- Always-on **Request** panel: method, URL, headers, cookies, body — present in every trace.
+- Always-on **Response** panel: status, headers, body, duration, peak memory.
+- When Laravel adapter present: enrich with resolved route + auth user above raw data.
+
+**Privacy:**
+- `periscope.redact_headers` INI (default: `Authorization,Cookie,Set-Cookie,X-Auth-Token`) — those keys stored as `<redacted>`.
+- `periscope.redact_body_keys` for POST body / JSON keys (`password`, `password_confirmation`, `credit_card`, etc.).
+- Document that traces sit on disk in `/tmp/periscope/` — users responsible for not committing them.
+
+### A.5 — Every observability event must include precise call site (file:line + snippet)
+
+**Rule:** When a Laravel hook (or any future framework adapter) records an observability event, it must include:
+
+- **File**: the path of the topmost *user-code* frame on the call stack (skipping vendor/, Illuminate\*, Symfony\*).
+- **Line**: line number within that file.
+- **Snippet**: 3 lines of source code (line-2, line, line+2) verbatim, so devs see the Eloquent / Cache / Log call inline in the panel.
+- **Stack to root**: list of frame_ids from the user-code frame back to the request entry.
+
+**User framing:** *"For 10× queries, show the exact file/line where it was executed so devs immediately see where the N+1 is coming from."*
+
+**Schema additions for Phase 5** (additive, no breaking change):
+
+```capnp
+struct CallSite {
+  file        @0 :Text;
+  line        @1 :UInt32;
+  snippet     @2 :List(SnippetLine);
+  frameStack  @3 :List(UInt32);   # frame ids root → leaf
+}
+
+struct SnippetLine {
+  number      @0 :UInt32;
+  source      @1 :Text;
+}
+
+# Add to ObservabilityEvent struct:
+struct ObservabilityEvent {
+  ...
+  userCallSite @13 :CallSite;
+}
+```
+
+**Laravel adapter implementation** — `debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 30)`, skip vendor/laravel/, vendor/illuminate/, vendor/symfony/, vendor/composer/, capture file+line+3-line snippet from first user frame. Apply to ALL event types: SQL, log, cache, redis, http, jobs, mail, events.
+
+**UI rendering (Phase 9):** every event row has a 📍 icon that expands to file:line + snippet. Click a line number → IDE deep link (`vscode://file/path/to/foo.php:42`, `phpstorm://open?file=...&line=42`).
+
+### A.6 — AI-native trace access (HTTP API + MCP server + analyst)
+
+**Rule:** Claude Code, Cursor, Codex, Continue, aider, and any other AI dev tool must be able to query periscope traces programmatically, AND interpret them to recommend fixes.
+
+**User framing:** *"AIs should have access to give devs the ability to tell what's happening where a naked eye cannot see — at the end, AI can make sense of what's happening when you log in and tell you what to improve, what's not right."*
+
+**Two delivery channels — ship both:**
+
+1. **HTTP REST API** — universal. The Rust daemon (Phase 6) serves browser UI at `localhost:9999`; same daemon exposes JSON API at `localhost:9999/api/*`. Endpoints:
+   - `GET /api/traces` — list recent traces (id, timestamp, request URI, duration, exception)
+   - `GET /api/traces/{id}` — full trace as JSON
+   - `GET /api/traces/{id}/frames` — paginated frames
+   - `GET /api/traces/{id}/frames/{frameId}` — one frame with locals + scope
+   - `GET /api/traces/{id}/queries` — SQL events (Phase 5)
+   - `GET /api/traces/{id}/timeline` — event-ordered list for scrubbing
+   - `GET /api/traces/{id}/exceptions` — any exceptions thrown
+   - `GET /api/traces/{id}/insights` — **deterministic** heuristics: N+1 detection, DB-in-loop, slow-frame ranking, memory hog detection. Independent of any AI.
+
+2. **MCP server** — Anthropic's protocol for tool servers, supported by Claude Code natively. Ship a separate `periscope-mcp` binary (or sub-command of daemon) that speaks MCP over stdio. Tools to expose:
+   - `list_traces(limit?)` — recent traces
+   - `get_trace(id)` — full trace
+   - `find_traces(uri_pattern, status_code?, has_exception?)` — search
+   - `explain_slowness(trace_id)` — heuristic-based perf analysis
+   - `get_frame(trace_id, frame_id)` — drill in
+   - `get_variable(trace_id, frame_id, name)` — specific local at point in time
+   - `diff_frames(trace_id, frame_a, frame_b)` — what changed between two frames
+
+**Patterns the deterministic insights endpoint detects (Phase 6)**:
+
+| Pattern | Recommendation |
+|---|---|
+| Same SQL pattern fired N times within one frame, bindings differ only by id | "N+1 detected — eager-load with `with('agency')` at `ListingsController.php:42`" |
+| Function called X times in a loop, each fires a query | "DB-in-loop pattern — chunk or batch" |
+| Memory peaked > Y MB during one frame | "Loaded N models eagerly — use lazy collection or chunk" |
+| Cache::get always misses for the same key | "Cache miss storm — keys never written by any seen frame" |
+| Sequential `Http::get(...)` calls each > 100ms | "HTTP serialization — use Http::pool" |
+| Variable `$user` set to null at frame X but expected non-null downstream | "Auth state lost in middleware Y" |
+
+**Architecturally important:** deterministic insights MUST exist independently of AI access. AI is a multiplier on top of structured signals; it isn't the primary detector. Otherwise the product depends on an AI vendor and gets worse if the AI is down or expensive.
+
+**Phasing:**
+
+- **Phase 4** (done): `--json` mode on `periscope-dump` — any agent can shell out to get trace data.
+- **Phase 6 (DAP daemon)**: `/api/*` endpoints in same Rust binary serving browser UI.
+- **Phase 9b (Browser UI)**: shares same `/api/*` — single source of truth. Adds an "Ask Claude" button that ships the trace summary + a question to the user's configured AI provider.
+- **Phase 11 (Distribution)**: ship `periscope-mcp` as a separate sub-command or binary. Add `claude mcp add periscope` instructions in README. Add Cursor / Continue / aider integration docs.
+
+**Privacy guardrails:**
+- Default to `localhost`-only binding.
+- Never expose externally without explicit `--listen 0.0.0.0` flag.
+- Document that pointing an internet-connected AI agent at a trace dir means that AI vendor *sees* the trace contents (cookies, request bodies). Document, don't try to prevent — but flag loudly.
+- Phase 5+ Laravel adapter redaction (auth tokens, password fields) MUST run before traces hit AI agents.
+
+**Marketing line:** *"Your AI co-pilot reads every request and tells you what's wrong — N+1 queries, slow frames, lost auth state, memory hogs — before you even know to look."*
 
 ---
 

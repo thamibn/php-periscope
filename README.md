@@ -4,7 +4,7 @@
 
 A live observability + time-travel debugger for PHP and Laravel. Pause any request, see every variable, query, log, job, event, cache hit, Redis command, and HTTP call that led to that line — and scrub backward in time.
 
-**Status:** 🚧 Planning complete — implementation Phase 1 starts soon. See [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`](thoughts/shared/plans/2026-05-08-php-periscope-mvp.md) for the full plan.
+**Status:** 🚧 Phases 1–4 landed. C extension observes every PHP function call with full variable capture; Cap'n Proto traces written to disk; Rust daemon reads them. See [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`](thoughts/shared/plans/2026-05-08-php-periscope-mvp.md) for the full plan and [`docs/POSITIONING.md`](docs/POSITIONING.md) for the head-to-head benchmark vs Xdebug (we're 3.3× faster inactive, 4.1× faster in trace mode).
 
 ## What it does
 
@@ -41,6 +41,43 @@ See [`docs/SCOPE.md`](docs/SCOPE.md) for the full in/out list.
 - [Roadmap](docs/ROADMAP.md) — phase calendar
 - [Architecture](docs/ARCHITECTURE.md) — system diagram & decisions
 - [Implementation plan](thoughts/shared/plans/2026-05-08-php-periscope-mvp.md) — the plan of record
+
+## Trace storage and cleanup
+
+When `periscope.trace_dir` is set (it's empty by default, meaning no on-disk traces are written), each request writes one `.cptrace` file (~5KB–500KB depending on call volume).
+
+**Automatic retention** — runs at the start of every request:
+
+| INI knob | Default | Behaviour |
+|---|---|---|
+| `periscope.max_traces` | `100` | Keep newest N traces; delete the rest. Set to `0` to disable. |
+| `periscope.max_trace_age_seconds` | `86400` (24h) | Delete traces older than this. Set to `0` to disable. |
+
+**Manual cleanup**:
+
+```bash
+make trace-clean                                  # default: /tmp/periscope
+make trace-clean PERISCOPE_TRACE_DIR=/some/path   # custom dir
+```
+
+**Privacy note** — traces capture request bodies, cookies, headers, and variable contents. They may contain secrets. Don't commit them. Don't ship them to support without redaction. The C extension already redacts a default set of headers (`Authorization`, `Cookie`, `Set-Cookie`); see [`docs/SCOPE.md`](docs/SCOPE.md) for the full redaction policy.
+
+## Installing for end users (eventually)
+
+End users will install precompiled binaries — **no Rust, C++, or C toolchain required**:
+
+```bash
+# macOS (planned, Phase 11)
+brew install thamibn/php-periscope/php-periscope
+
+# Linux (planned, Phase 11)
+curl -fsSL https://periscope.dev/install.sh | bash
+
+# Per-project
+composer require thamibn/periscope-laravel
+```
+
+The build chain (`make extension`, `cargo build`, `capnp compile`) only runs for maintainers building releases. Users get bottles.
 
 ## License
 
