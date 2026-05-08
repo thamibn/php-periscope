@@ -8,6 +8,8 @@ $ref = new ReflectionExtension("periscope");
 $fns = $ref->getFunctions();
 var_dump(count($fns));
 ?>
---EXPECT--
+--EXPECTF--
 periscope loaded
+[periscope] enter {main}() @depth=1
 int(0)
+[periscope] exit  {main} -> int(1) (%fms) @depth=1

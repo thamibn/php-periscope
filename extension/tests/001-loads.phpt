@@ -6,6 +6,8 @@ Phase 1: extension is registered and loaded
 <?php
 var_dump(extension_loaded("periscope"));
 ?>
---EXPECT--
+--EXPECTF--
 periscope loaded
+[periscope] enter {main}() @depth=1
 bool(true)
+[periscope] exit  {main} -> int(1) (%fms) @depth=1

@@ -6,5 +6,5 @@ PHP_ARG_ENABLE([periscope],
 
 if test "$PHP_PERISCOPE" != "no"; then
   AC_DEFINE(HAVE_PERISCOPE, 1, [ Have periscope support ])
-  PHP_NEW_EXTENSION(periscope, periscope.c, $ext_shared)
+  PHP_NEW_EXTENSION(periscope, periscope.c periscope_filter.c, $ext_shared)
 fi

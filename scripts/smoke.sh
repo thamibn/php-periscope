@@ -39,4 +39,33 @@ done
 pass "100 sequential invocations without crash"
 
 echo ""
-echo "All Phase 1 smoke tests passed."
+echo "Phase 2 smoke tests"
+echo "==================="
+
+# 6. Observer fires on the integration fixture — enter/exit balance
+fixture="tests/integration/hello.php"
+[ -f "$fixture" ] || fail "fixture $fixture missing"
+log="$($PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/null)"
+enters="$(printf '%s\n' "$log" | grep -c '\[periscope\] enter ' || true)"
+exits="$(printf '%s\n' "$log" | grep -c '\[periscope\] exit  ' || true)"
+[ "$enters" -gt 0 ] && [ "$enters" = "$exits" ] && \
+  pass "fixture: $enters enters / $exits exits balanced" || \
+  fail "fixture: $enters enters vs $exits exits — unbalanced"
+
+# 7. Fixture observed expected method
+printf '%s\n' "$log" | grep -q 'Greeter::greet' && \
+  pass "fixture: observed Greeter::greet method call" || \
+  fail "fixture: did not observe Greeter::greet"
+
+# 8. Recursion depth tracking — fib(5) hits depth >= 6
+printf '%s\n' "$log" | grep -q '@depth=6' && \
+  pass "fixture: recursion @depth=6 reached (fib)" || \
+  fail "fixture: did not see @depth=6"
+
+# 9. Declared types appear in argument dump
+printf '%s\n' "$log" | grep -q 'int $n = int(' && \
+  pass "fixture: declared parameter types + names dumped" || \
+  fail "fixture: missing typed parameter dump"
+
+echo ""
+echo "All smoke tests passed."
