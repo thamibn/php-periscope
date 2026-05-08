@@ -57,6 +57,15 @@ struct CallSiteJson {
     line: u32,
     snippet: Vec<SnippetLineJson>,
     frame_stack: Vec<u32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    stack: Vec<StackFrameJson>,
+}
+
+#[derive(Serialize)]
+struct StackFrameJson {
+    file: String,
+    line: u32,
+    function: String,
 }
 
 #[derive(Serialize)]
@@ -181,7 +190,23 @@ fn decode_call_site(
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|n| n.as_u64().map(|x| x as u32)).collect())
             .unwrap_or_default();
-        return Ok(Some(CallSiteJson { file, line, snippet, frame_stack }));
+        let stack: Vec<StackFrameJson> = obj
+            .get("stack")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| {
+                        let o = s.as_object()?;
+                        Some(StackFrameJson {
+                            file: o.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            line: o.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            function: o.get("function").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        return Ok(Some(CallSiteJson { file, line, snippet, frame_stack, stack }));
     }
     Ok(None)
 }
@@ -336,6 +361,25 @@ fn main() -> Result<()> {
             cs_str,
             payload_preview,
         );
+
+        if let Some(c) = &cs {
+            // Snippet — show the user the actual line of code so they don't
+            // have to open the editor to know which call this is.
+            for line in &c.snippet {
+                let marker = if line.number == c.line { ">>" } else { "  " };
+                println!("       {} {:>4} | {}", marker, line.number, line.source);
+            }
+            // Full user-code call chain — every non-vendor frame from the
+            // request entry down to the offending line.
+            if c.stack.len() > 1 {
+                println!("       stack:");
+                for f in &c.stack {
+                    let fn_str = if f.function.is_empty() { "" } else { &f.function };
+                    println!("         {}:{}  {}", f.file, f.line, fn_str);
+                }
+            }
+            println!();
+        }
     }
 
     Ok(())

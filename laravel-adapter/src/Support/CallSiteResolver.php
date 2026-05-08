@@ -37,13 +37,22 @@ final readonly class CallSiteResolver
     ) {}
 
     /**
-     * @return array{file: string, line: int, snippet: list<array{number: int, source: string}>, frame_stack: list<int>}|null
+     * @return array{
+     *   file: string,
+     *   line: int,
+     *   snippet: list<array{number: int, source: string}>,
+     *   frame_stack: list<int>,
+     *   stack: list<array{file: string, line: int, function: string}>
+     * }|null
      */
     public function resolve(): ?array
     {
         $bt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, $this->maxBacktrace);
 
-        foreach ($bt as $frame) {
+        $top = null;
+        $stack = [];
+
+        foreach ($bt as $i => $frame) {
             $file = $frame['file'] ?? null;
             $line = $frame['line'] ?? null;
 
@@ -55,15 +64,48 @@ final readonly class CallSiteResolver
                 continue;
             }
 
-            return [
-                'file'        => $file,
-                'line'        => $line,
-                'snippet'     => $this->snippet($file, $line),
-                'frame_stack' => [],
+            $entry = [
+                'file'     => $file,
+                'line'     => $line,
+                // The function called from this frame is on the *next* backtrace entry —
+                // PHP records "called by" not "currently executing".
+                'function' => $this->describeCallee($bt[$i + 1] ?? null),
             ];
+
+            if ($top === null) {
+                $top = $entry;
+            }
+
+            $stack[] = $entry;
         }
 
-        return null;
+        if ($top === null) {
+            return null;
+        }
+
+        return [
+            'file'        => $top['file'],
+            'line'        => $top['line'],
+            'snippet'     => $this->snippet($top['file'], $top['line']),
+            'frame_stack' => [],
+            'stack'       => $stack,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null $frame
+     */
+    private function describeCallee(?array $frame): string
+    {
+        if ($frame === null) {
+            return '';
+        }
+        $class    = $frame['class']    ?? '';
+        $type     = $frame['type']     ?? '';
+        $function = $frame['function'] ?? '';
+        return $class !== ''
+            ? sprintf('%s%s%s', $class, $type, $function)
+            : (string) $function;
     }
 
     private function isVendorPath(string $path): bool
