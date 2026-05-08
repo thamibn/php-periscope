@@ -236,6 +236,23 @@ static void periscope_fcall_begin(zend_execute_data *ex)
     }
     PERISCOPE_G(depth) = d + 1;
 
+    /* Phase 8b: live pause-on-breakpoint. Drain any pending IDE breakpoint
+     * updates, then if this frame's enter line matches a registered
+     * breakpoint, send breakpoint_hit and block until the daemon sends
+     * Continue. Only userland frames participate — internal C functions
+     * have no file/line for the IDE to target. */
+    if (periscope_daemon_link_active() && ex->func->type == ZEND_USER_FUNCTION) {
+        periscope_daemon_link_drain();
+        const char *bp_file = ex->func->op_array.filename
+            ? ZSTR_VAL(ex->func->op_array.filename) : NULL;
+        uint32_t bp_line = ex->func->op_array.line_start;
+        if (bp_file && periscope_daemon_link_is_breakpoint(bp_file, bp_line)) {
+            uint32_t fid = (d < PERISCOPE_MAX_DEPTH)
+                ? PERISCOPE_G(frame_id_at)[d] : 0;
+            periscope_daemon_link_pause(fid, bp_file, bp_line);
+        }
+    }
+
     /* stderr output (Phase 2/3 behaviour preserved) */
     smart_str *buf = &PERISCOPE_G(scratch);
     periscope_capture_options_t opts;

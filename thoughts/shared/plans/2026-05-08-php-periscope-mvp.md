@@ -3,7 +3,7 @@
 **Date:** 2026-05-08 (last updated 2026-05-08 with AI-native + retention additions)
 **Author:** Thamsanca Ntuli (with Claude Code)
 **Project:** php-periscope — live observability + time-travel debugger **for Laravel** (v1)
-**Status:** v1 in progress — Phases 1–7 landed (replay engine + DAP cursor + /api/traces/{id}/state), Phase 8 next
+**Status:** v1 in progress — Phases 1–8 landed (live pause-on-breakpoint via Unix socket; DAP routes setBreakpoints/continue to live extensions; cleanup endpoints), Phase 9 (browser UI) next
 **Tagline:** *See into your Laravel request — your AI co-pilot does too.*
 
 **v1 audience scope:** Laravel only. The C extension is framework-agnostic by design (correct engineering for a Zend Observer hook), but we test, market, and support **only** Laravel in v1. Other frameworks ship as separate Composer packages after v1 (`periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`) once Laravel adoption proves the model. v1 narrowness is a deliberate scope cut.
@@ -760,11 +760,15 @@ When in replay mode, the daemon emits a DAP `output` event with `category: "cons
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] DAP integration test: `stepBack` after a breakpoint hit returns updated stackTrace + variables matching the trace's previous frame
-- [ ] `continue` from replay mode resumes the live request
+- [x] **8a:** end-of-request push from C extension reaches WebSocket clients (`daemon/tests/ws_fanout.rs`, `scripts/smoke.sh` Phase 8a block)
+- [x] **8b:** full live-pause round trip — DAP `setBreakpoints` → `DaemonMessage::SetBreakpoints` → fake C ext → `ExtMessage::BreakpointHit` → DAP `stopped` event → DAP `continue` → `DaemonMessage::Continue` (`daemon/tests/dap_breakpoint.rs::live_breakpoint_round_trip`)
+- [x] **8b:** C-extension pause primitive — `periscope_daemon_link_pause` blocks until daemon sends `Continue`; non-blocking drain at every userland frame boundary picks up new breakpoints mid-request without spinning
+- [x] **8b:** trace storage cleanup endpoints — `DELETE /api/traces/{id}` and `DELETE /api/traces` (`scripts/smoke.sh` Phase 6 block)
+- [x] No `unsafe` Rust still holds (`#![forbid(unsafe_code)]` at crate root)
 
 #### Manual Verification:
-- [ ] In VSCode: set breakpoint in `ListingController::show`. Hit it. Step back into the middleware that called it. See the request before route resolution. Continue — request finishes normally, response renders in browser.
+- [ ] In VSCode: set breakpoint in `ListingController::show`. Hit the route. PHP request actually halts mid-execution. IDE shows paused state with stack + scope. Click continue — request resumes, response renders in browser.
+- [ ] In PhpStorm via the JetBrains DAP plugin: same as above. (Confirms the per-IDE failure modes the user wants to test.)
 
 ---
 
@@ -831,6 +835,76 @@ These features operate on the data the Phase 5 watchers already emit; no new C-e
 - Per row: stack trace + AI suggestion (already emitted by ExceptionHook + AiAdvisor), originating-request deep link (the trace where JobHook recorded `phase=queued`), attempts, queue/connection, first/last failure timestamps.
 - Actions: retry (single, bulk-by-class, bulk-by-exception), forget, retry-with-edited-payload.
 - Differentiators: time-travel into the failed run's recorded trace, diff vs last successful run of the same class, pattern-grouped failures across last 24h, AI verdict "code at `Foo.php:42` still has the bug — retry anyway?", one-click Pest repro generator.
+
+#### Static export + drag-and-drop load (v1, scoped into Phase 9b)
+
+User-confirmed v1 feature (2026-05-08): ship a self-contained `.html` export of any trace that opens in any browser without the daemon running. Like Chrome's "Save performance profile as HTML," Sentry's issue export, the Firefox profiler's shareable links — but for periscope traces.
+
+**Three export formats, one CLI:**
+
+```
+periscope-export <trace-id-or-path> [--format html|json|cptrace] [--out file.ext]
+```
+
+| Format | Default for | Size | What it is | Who reads it |
+|---|---|---|---|---|
+| `html` (default) | sharing with humans | ~1–2MB | UI bundle + trace JSON inlined into one self-contained file | any browser, double-click |
+| `json` | AI agents + scripts | ~50–500KB | the same shape `GET /api/traces/{id}` returns today | Claude/Cursor/Codex/jq/anything |
+| `cptrace` | archiving / re-hosting | ~5–100KB | a copy of the original binary trace | another `periscope-daemon` instance |
+
+**Why three formats, not one:** AI agents read JSON natively — making them parse HTML to extract data is silly. Humans want a clickable UI — making them install a daemon to view a colleague's trace defeats the purpose. Long-term archives want the smallest format that round-trips through a daemon — that's the binary.
+
+**Two halves of the implementation:**
+
+1. **Export CLI** at `daemon/src/bin/export.rs`:
+   - Reuses `Trace::open` + `trace_view::decode_trace` + `insights::compute` + `summary::compute` — no new logic, just packaging.
+   - `html`: bundles the SolidJS `dist/` assets + the trace JSON inlined as `window.PERISCOPE_TRACE = {...}`.
+   - `json`: pretty-prints the same struct; identical to `periscope-dump --json` but with insights + summary pre-baked.
+   - `cptrace`: a `cp` of the source file. Trivial; included for symmetry.
+
+2. **Load** — UI gracefully reads the trace from `window.PERISCOPE_TRACE` (set by the exporter inline) instead of `/api/*` when present:
+   - At boot, the SolidJS `App.tsx` checks for `window.PERISCOPE_TRACE`; if present, uses it as the data source and disables daemon-only features (live WebSocket, IDE breakpoint sync).
+   - Drag-and-drop: hosted UI also accepts dropping a `.cptrace` or a `.json` file onto the page → load directly. Dropping a previously-exported `.html` opens it in a new tab.
+   - Disabled features in static mode: live mode, `setBreakpoints` (replay-only), AI ask-button (no daemon to proxy through — but the raw trace JSON is still readable for download + copy-paste into Claude).
+
+**Use cases the user confirmed they need:**
+- *"My colleague hit a weird bug. I email them `bug.html`. They double-click. Full debugger UI in their browser. They don't install anything."*
+- Trace embedding in bug reports / GitHub issues / Slack threads.
+- Privacy-preserving sharing (file lives where the user puts it; no SaaS).
+- Demo / documentation: link a trace from a blog post → readers see the full UI.
+- Time capsules: archive a trace before a refactor; re-open it 6 months later without needing the matching daemon version.
+
+**Why this beats Clockwork's sharing service:**
+- No SaaS dependency — periscope traces include cookies, request bodies, captured variables; we never default to "send to a third party."
+- Works offline.
+- Zero install for the recipient.
+- Long-term archival — daemon versions can change, the exported HTML is frozen.
+
+**Implementation cost:** ~1 day Rust (`periscope-export` reuses existing decoders), ~1 day SolidJS (`window.PERISCOPE_TRACE` data-source switch + drag-and-drop file reader). Lands alongside Phase 9b's main UI build.
+
+**Not in this scope:** importing an exported `.html` *back* into the daemon for re-indexing — we accept the export as terminal/read-only. If a user wants to re-host the trace, they share the original `.cptrace` file instead.
+
+#### Trace storage management UI (v1, Phase 9b)
+
+User-confirmed (2026-05-08): the UI must *show* what's sitting in the trace dir and let the user clean it up. We are putting files in `/tmp/periscope/`; the user is right that we should make that visible and reversible from inside our own UI rather than punting to `make trace-clean` or `rm -rf`.
+
+**Daemon endpoints (landed in Phase 8b):**
+- `GET /api/traces` — already lists traces with size_bytes, started_at_unix_micros, duration, request URI, status code, has_exception. Phase 8b kept this.
+- `DELETE /api/traces/{id}` — removes one `.cptrace` file. Returns `{deleted: 1}`.
+- `DELETE /api/traces` — removes all `.cptrace` files in the configured `trace_dir`. Returns `{deleted: N}`.
+
+**UI affordances (Phase 9b):**
+- Sidebar "Storage" section: total trace count + total bytes on disk, current `trace_dir` path.
+- Per-row "delete" icon on the trace list (confirm-on-click).
+- "Clear all" button under the storage panel (confirm dialog with the count and total bytes; default-deny when ≥10 traces or ≥10MB so accidental clicks don't nuke history).
+- "Open dir in Finder/Explorer" deep-link (macOS `open <dir>`, Linux `xdg-open <dir>`).
+
+**Existing automatic retention (Phase 4 — already shipping):**
+- `periscope.max_traces` (default 100) + `periscope.max_trace_age_seconds` (default 86400, 24h). Sweep at RINIT.
+- Manual `make trace-clean` Makefile target.
+- Now joined by daemon HTTP delete endpoints + future UI buttons.
+
+**Why this matters:** users will accumulate trace files on disk during normal use. Without an in-UI cleanup path, they either `rm -rf /tmp/periscope` blind (loses history they wanted) or never clean up (disk fills). Surface the size + give them the buttons.
 
 ### Phase 9b Clockwork-parity polish (added 2026-05-08 after reviewing underground.works/clockwork)
 

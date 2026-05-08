@@ -1,27 +1,28 @@
 //! Extension ↔ daemon Unix domain socket protocol.
 //!
-//! Phase 6 lays the wire down. The C extension's `periscope_daemon_link`
-//! is the client; this module is the server. v1 message types:
+//! Bidirectional length-prefixed JSON over a single Unix stream socket per
+//! connected PHP request. The C extension is the client; this module is
+//! the server.
 //!
-//!   ext  → daemon: {"type":"hello", "pid":..., "version":"..."}
-//!   ext  → daemon: {"type":"request_started", "request_id":"...", "trace_path":"..."}
-//!   ext  → daemon: {"type":"request_finished", "request_id":"...", "trace_path":"..."}
+//! Phase 6 laid the wire down (one-way ext→daemon).
+//! Phase 8a added end-of-request fanout to UI WebSocket clients.
+//! Phase 8b adds the daemon→ext direction so the daemon can push
+//! `set_breakpoints` and `continue` commands; the C extension reads them
+//! at frame boundaries to decide whether to pause + resume.
 //!
-//! Live breakpoint coordination (`set_breakpoints`, `continue`,
-//! `breakpoint_hit`) is reserved for Phase 8 — landing the wire here
-//! means Phase 8 only adds the C-side pause primitive, no new transport.
-//!
-//! Frames are length-prefixed JSON: 4-byte big-endian length, then UTF-8
-//! body. Tiny, infrequent, easy to debug with `nc -U`.
+//! Wire format (both directions): 4-byte big-endian length, UTF-8 JSON body.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::broadcast;
+use tokio::net::{
+    unix::{OwnedReadHalf, OwnedWriteHalf},
+    UnixListener, UnixStream,
+};
+use tokio::sync::{broadcast, mpsc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -34,15 +35,14 @@ pub enum ExtMessage {
     /// tabs that a new trace is on disk and ready to read via /api/traces.
     /// Per-frame streaming is intentionally NOT in v1 — for typical 50-200ms
     /// HTTP requests the human reaction loop is too slow to react to live
-    /// frames; one ping at the end is the right granularity. Long-running
-    /// CLI/queue scenarios get an opt-in `periscope.live_stream=1` flag in
-    /// v1.1.
+    /// frames; one ping at the end is the right granularity.
     RequestFinished {
         request_id: String,
         trace_path: String,
         duration_micros: u64,
     },
-    /// Reserved for Phase 8b live breakpoint coordination.
+    /// Phase 8b: a userland frame matched a registered breakpoint. The
+    /// extension is now blocked waiting for `Continue` from the daemon.
     BreakpointHit {
         frame_id: u32,
         file: String,
@@ -53,26 +53,65 @@ pub enum ExtMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DaemonMessage {
-    Ack,
-    /// Reserved for Phase 8.
+    /// Phase 8b: replace the extension's per-file breakpoint set. An empty
+    /// `lines` list clears all breakpoints in that file.
     SetBreakpoints { file: String, lines: Vec<u32> },
-    /// Reserved for Phase 8.
+    /// Phase 8b: release the request thread from a breakpoint hit. The
+    /// extension blocks-reads waiting for this message after sending
+    /// BreakpointHit.
     Continue,
 }
 
-#[derive(Clone)]
+/// Bus shared across all daemon services.
+///
+/// - `bus_tx`: broadcast channel — every connected ext message is fanned
+///   out here. Subscribers: WebSocket UI clients, DAP server.
+/// - `outbound`: per-client outbound queue. Each connected ext client
+///   gets one mpsc::Sender registered here so the DAP server can push
+///   `SetBreakpoints` / `Continue` to it without coupling layers.
 pub struct LinkBus {
-    sender: broadcast::Sender<ExtMessage>,
+    bus_tx: broadcast::Sender<ExtMessage>,
+    outbound: Mutex<Vec<mpsc::Sender<DaemonMessage>>>,
 }
 
 impl LinkBus {
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(256);
-        Self { sender }
+        let (bus_tx, _) = broadcast::channel(256);
+        Self {
+            bus_tx,
+            outbound: Mutex::new(Vec::new()),
+        }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ExtMessage> {
-        self.sender.subscribe()
+        self.bus_tx.subscribe()
+    }
+
+    /// Register a per-client outbound channel. Returns the receiver the
+    /// per-client writer task drains. Caller owns the receiver.
+    pub fn register_outbound(&self) -> mpsc::Receiver<DaemonMessage> {
+        let (tx, rx) = mpsc::channel::<DaemonMessage>(64);
+        let mut guard = self.outbound.lock().expect("LinkBus outbound poisoned");
+        guard.push(tx);
+        rx
+    }
+
+    /// Send a daemon message to every connected extension client. v1 is
+    /// "one live extension per session" so this is effectively a unicast
+    /// in practice; multi-pid coordination is post-v1.
+    pub fn broadcast_to_extensions(&self, msg: DaemonMessage) {
+        let mut guard = self.outbound.lock().expect("LinkBus outbound poisoned");
+        // Drop any closed senders so the list doesn't grow unbounded.
+        guard.retain(|tx| !tx.is_closed());
+        for tx in guard.iter() {
+            let _ = tx.try_send(msg.clone());
+        }
+    }
+
+    /// Number of currently-connected extension clients. Mostly for tests.
+    pub fn extension_count(&self) -> usize {
+        let guard = self.outbound.lock().expect("LinkBus outbound poisoned");
+        guard.iter().filter(|tx| !tx.is_closed()).count()
     }
 }
 
@@ -83,7 +122,6 @@ impl Default for LinkBus {
 }
 
 pub async fn serve(path: PathBuf, bus: Arc<LinkBus>) -> Result<()> {
-    // Best-effort: remove any stale socket file so we can rebind.
     let _ = tokio::fs::remove_file(&path).await;
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -114,22 +152,56 @@ pub async fn serve(path: PathBuf, bus: Arc<LinkBus>) -> Result<()> {
     }
 }
 
-async fn handle_client(mut stream: UnixStream, bus: Arc<LinkBus>) -> Result<()> {
+async fn handle_client(stream: UnixStream, bus: Arc<LinkBus>) -> Result<()> {
+    let (read_half, write_half) = stream.into_split();
+    let outbound_rx = bus.register_outbound();
+
+    let read_bus = bus.clone();
+    let read_task = tokio::spawn(async move { read_loop(read_half, read_bus).await });
+    let write_task = tokio::spawn(async move { write_loop(write_half, outbound_rx).await });
+
+    // If either side errors out, drop both. tokio::join lets us await both.
+    let (r, w) = tokio::join!(read_task, write_task);
+    if let Err(e) = r {
+        tracing::debug!(error=?e, "ext-link reader joined with error");
+    }
+    if let Err(e) = w {
+        tracing::debug!(error=?e, "ext-link writer joined with error");
+    }
+    Ok(())
+}
+
+async fn read_loop(mut reader: OwnedReadHalf, bus: Arc<LinkBus>) {
     loop {
-        let msg = match read_frame(&mut stream).await? {
-            Some(m) => m,
-            None => return Ok(()),
-        };
-        tracing::debug!(?msg, "ext-link recv");
-        let _ = bus.sender.send(msg.clone());
-        // For now always ack; Phase 8 will return SetBreakpoints/Continue here.
-        write_frame(&mut stream, &DaemonMessage::Ack).await?;
+        match read_frame(&mut reader).await {
+            Ok(Some(msg)) => {
+                tracing::debug!(?msg, "ext-link recv");
+                let _ = bus.bus_tx.send(msg);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                tracing::debug!(error=?e, "ext-link read errored; closing");
+                break;
+            }
+        }
     }
 }
 
-async fn read_frame(stream: &mut UnixStream) -> Result<Option<ExtMessage>> {
+async fn write_loop(
+    mut writer: OwnedWriteHalf,
+    mut outbound_rx: mpsc::Receiver<DaemonMessage>,
+) {
+    while let Some(msg) = outbound_rx.recv().await {
+        if let Err(e) = write_frame(&mut writer, &msg).await {
+            tracing::debug!(error=?e, "ext-link write errored; closing");
+            break;
+        }
+    }
+}
+
+async fn read_frame(reader: &mut OwnedReadHalf) -> Result<Option<ExtMessage>> {
     let mut len_buf = [0u8; 4];
-    if let Err(e) = stream.read_exact(&mut len_buf).await {
+    if let Err(e) = reader.read_exact(&mut len_buf).await {
         if e.kind() == std::io::ErrorKind::UnexpectedEof {
             return Ok(None);
         }
@@ -140,24 +212,23 @@ async fn read_frame(stream: &mut UnixStream) -> Result<Option<ExtMessage>> {
         anyhow::bail!("ext-link frame length out of range: {}", len);
     }
     let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
+    reader.read_exact(&mut body).await?;
     let msg: ExtMessage = serde_json::from_slice(&body)
         .with_context(|| format!("decoding ext frame: {}", String::from_utf8_lossy(&body)))?;
     Ok(Some(msg))
 }
 
-async fn write_frame(stream: &mut UnixStream, msg: &DaemonMessage) -> Result<()> {
+async fn write_frame(writer: &mut OwnedWriteHalf, msg: &DaemonMessage) -> Result<()> {
     let body = serde_json::to_vec(msg)?;
     let len = (body.len() as u32).to_be_bytes();
-    stream.write_all(&len).await?;
-    stream.write_all(&body).await?;
-    stream.flush().await?;
+    writer.write_all(&len).await?;
+    writer.write_all(&body).await?;
+    writer.flush().await?;
     Ok(())
 }
 
 /// Default Unix socket path. The C extension agrees on this via the
-/// `PERISCOPE_DAEMON_SOCKET` environment variable (override) — same default
-/// as documented in `docs/ARCHITECTURE.md`.
+/// `PERISCOPE_DAEMON_SOCKET` environment variable (override).
 pub fn default_socket_path() -> PathBuf {
     Path::new("/tmp/periscope/daemon.sock").to_path_buf()
 }
@@ -178,7 +249,6 @@ mod tests {
         let server_bus = bus.clone();
         let server = tokio::spawn(async move { serve(server_sock, server_bus).await });
 
-        // Wait for socket to appear.
         for _ in 0..20 {
             if sock.exists() {
                 break;
@@ -197,16 +267,6 @@ mod tests {
         client.write_all(&body).await.unwrap();
         client.flush().await.unwrap();
 
-        // Read ack.
-        let mut len_buf = [0u8; 4];
-        client.read_exact(&mut len_buf).await.unwrap();
-        let len = u32::from_be_bytes(len_buf) as usize;
-        let mut body = vec![0u8; len];
-        client.read_exact(&mut body).await.unwrap();
-        let ack: DaemonMessage = serde_json::from_slice(&body).unwrap();
-        assert!(matches!(ack, DaemonMessage::Ack));
-
-        // Bus should have observed our hello.
         let observed = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
             .await
             .unwrap()
@@ -214,6 +274,72 @@ mod tests {
         match observed {
             ExtMessage::Hello { pid, .. } => assert_eq!(pid, 42),
             _ => panic!("expected hello"),
+        }
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn daemon_can_push_to_connected_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("daemon.sock");
+        let bus = Arc::new(LinkBus::new());
+
+        let server_sock = sock.clone();
+        let server_bus = bus.clone();
+        let server = tokio::spawn(async move { serve(server_sock, server_bus).await });
+
+        for _ in 0..20 {
+            if sock.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        let mut client = ClientStream::connect(&sock).await.unwrap();
+
+        // Trigger a hello so the daemon registers the outbound channel for
+        // this client.
+        let hello = ExtMessage::Hello {
+            pid: 7,
+            version: "t".into(),
+        };
+        let body = serde_json::to_vec(&hello).unwrap();
+        let len = (body.len() as u32).to_be_bytes();
+        client.write_all(&len).await.unwrap();
+        client.write_all(&body).await.unwrap();
+        client.flush().await.unwrap();
+
+        // Wait for the server to register the outbound channel before pushing.
+        for _ in 0..50 {
+            if bus.extension_count() >= 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(bus.extension_count() >= 1, "expected one connected ext");
+
+        // Push a SetBreakpoints from the daemon side; the client should read it.
+        bus.broadcast_to_extensions(DaemonMessage::SetBreakpoints {
+            file: "Foo.php".into(),
+            lines: vec![42, 87],
+        });
+
+        let mut len_buf = [0u8; 4];
+        tokio::time::timeout(std::time::Duration::from_secs(2), client.read_exact(&mut len_buf))
+            .await
+            .expect("read len timeout")
+            .expect("read len");
+        let n = u32::from_be_bytes(len_buf) as usize;
+        let mut body = vec![0u8; n];
+        client.read_exact(&mut body).await.expect("read body");
+        let pushed: DaemonMessage = serde_json::from_slice(&body).unwrap();
+        match pushed {
+            DaemonMessage::SetBreakpoints { file, lines } => {
+                assert_eq!(file, "Foo.php");
+                assert_eq!(lines, vec![42, 87]);
+            }
+            other => panic!("unexpected daemon msg: {:?}", other),
         }
 
         server.abort();

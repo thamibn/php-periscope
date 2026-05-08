@@ -205,6 +205,15 @@ if [ -x "$DAEMON_BIN" ]; then
       pass "/api/file refuses paths outside the project root (403)" || \
       fail "/api/file traversal returned $FORBIDDEN_CODE (expected 403)"
 
+    # Clean-up endpoints (Phase 8b add)
+    DEL=$(curl -fsS -X DELETE "http://127.0.0.1:$SMOKE_PORT/api/traces/$TRACE_ID" 2>/dev/null || true)
+    echo "$DEL" | grep -q '"deleted":1' && \
+      pass "DELETE /api/traces/{id} removes one trace" || \
+      fail "DELETE /api/traces/{id} did not return deleted:1 (got: $DEL)"
+    [ ! -f "$SMOKE_TRACE_DIR/$TRACE_ID.cptrace" ] && \
+      pass "DELETE /api/traces/{id} actually removed the file" || \
+      fail "trace file still on disk after DELETE"
+
     kill "$DAEMON_PID" >/dev/null 2>&1 || true
     wait "$DAEMON_PID" >/dev/null 2>&1 || true
     rm -rf "$SMOKE_TRACE_DIR"

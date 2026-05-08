@@ -1,11 +1,14 @@
 //! Debug Adapter Protocol server.
 //!
-//! v1 scope: replay-only. The session is opened against a completed
-//! `.cptrace` file (passed via `launch.tracePath`); the daemon serves
-//! stack/variables/scopes from the recorded snapshots and supports
-//! `next`, `stepIn`, `stepOut`, `stepBack`, `reverseContinue`,
-//! `continue`. Live-pause-on-breakpoint is deferred to Phase 8 — needs
-//! the C extension to add a pause primitive over the Unix socket.
+//! Two modes, picked at `launch` time:
+//!
+//!  - **Replay** (`launch.tracePath` set): open a completed `.cptrace`,
+//!    serve stack/variables/scopes from recorded snapshots, support
+//!    `next`/`stepIn`/`stepOut`/`stepBack`/`reverseContinue`/`continue`.
+//!  - **Live** (Phase 8b — extension is actively running): IDE breakpoints
+//!    flow through the LinkBus to a connected C extension; the extension
+//!    pauses at frame entry; `breakpoint_hit` events arrive from the bus,
+//!    we emit DAP `stopped`; the IDE's `continue` releases the request.
 //!
 //! Wire format: standard DAP framing on stdio
 //! (`Content-Length: <n>\r\n\r\n<body>`), JSON body.
@@ -17,8 +20,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
+use crate::ext_link::{DaemonMessage, ExtMessage, LinkBus};
 use crate::replay::{BreakpointSet, ReplayCursor, StepKind, TraceIndex};
 use crate::trace::Trace;
 use crate::trace_view::{self, FrameJson};
@@ -61,11 +65,61 @@ struct DapEvent<'a> {
     body: Option<serde_json::Value>,
 }
 
+/// Owned form of a DAP event that can cross task boundaries — used by the
+/// background bus listener to ask the run loop to emit a `stopped` event.
+#[derive(Debug)]
+struct PendingEvent {
+    event: &'static str,
+    body: Option<serde_json::Value>,
+}
+
+enum Step {
+    Inbound(Result<Option<DapMessage>>),
+    Pending(Option<PendingEvent>),
+}
+
+async fn read_dap_message<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+) -> Result<Option<DapMessage>> {
+    let mut content_length: Option<usize> = None;
+    let mut header_buf = Vec::new();
+
+    loop {
+        header_buf.clear();
+        let n = read_line(reader, &mut header_buf).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        let line = String::from_utf8_lossy(&header_buf);
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
+            break; // end of headers
+        }
+        if let Some(rest) = line.strip_prefix("Content-Length:") {
+            content_length = Some(
+                rest.trim()
+                    .parse::<usize>()
+                    .context("bad Content-Length value")?,
+            );
+        }
+    }
+
+    let len = content_length.context("DAP frame missing Content-Length")?;
+    let mut body = vec![0u8; len];
+    reader.read_exact(&mut body).await?;
+    let msg: DapMessage = serde_json::from_slice(&body)
+        .with_context(|| format!("parsing DAP body: {}", String::from_utf8_lossy(&body)))?;
+    Ok(Some(msg))
+}
+
 pub struct DapServer<R, W> {
     reader: BufReader<R>,
     writer: W,
     out_seq: u64,
     state: Arc<Mutex<SessionState>>,
+    bus: Option<Arc<LinkBus>>,
+    pending_events: mpsc::Receiver<PendingEvent>,
+    pending_events_tx: mpsc::Sender<PendingEvent>,
 }
 
 struct SessionState {
@@ -74,6 +128,10 @@ struct SessionState {
     /// Variable-reference handle → frame id we'd materialise scope for.
     var_refs: HashMap<u32, u32>,
     next_var_ref: i64,
+    /// True when the C extension is paused at a breakpoint and waiting for
+    /// the IDE's `continue`. Determines whether `continue` is forwarded to
+    /// the extension or runs the replay cursor's forward_continue.
+    live_paused: bool,
 }
 
 impl Default for SessionState {
@@ -83,6 +141,7 @@ impl Default for SessionState {
             breakpoints: BreakpointSet::default(),
             var_refs: HashMap::new(),
             next_var_ref: 1000,
+            live_paused: false,
         }
     }
 }
@@ -93,55 +152,80 @@ where
     W: AsyncWrite + Unpin,
 {
     pub fn new(reader: R, writer: W) -> Self {
+        let (tx, rx) = mpsc::channel(64);
         Self {
             reader: BufReader::new(reader),
             writer,
             out_seq: 1,
             state: Arc::new(Mutex::new(SessionState::default())),
+            bus: None,
+            pending_events: rx,
+            pending_events_tx: tx,
         }
+    }
+
+    /// Attach the daemon's LinkBus so the DAP server can route IDE
+    /// breakpoints / continues to a live C extension and surface
+    /// `breakpoint_hit` notifications back to the IDE.
+    pub fn with_bus(mut self, bus: Arc<LinkBus>) -> Self {
+        // Spawn the bus listener: when a BreakpointHit arrives, push a
+        // PendingEvent so the run loop emits DAP `stopped`.
+        let mut rx = bus.subscribe();
+        let tx = self.pending_events_tx.clone();
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            loop {
+                let msg = match rx.recv().await {
+                    Ok(m) => m,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                };
+                if let ExtMessage::BreakpointHit { file, line, .. } = msg {
+                    {
+                        let mut s = state.lock().await;
+                        s.live_paused = true;
+                    }
+                    let body = serde_json::json!({
+                        "reason": "breakpoint",
+                        "description": format!("paused at {}:{}", file, line),
+                        "threadId": 1,
+                        "allThreadsStopped": true,
+                    });
+                    let _ = tx
+                        .send(PendingEvent {
+                            event: "stopped",
+                            body: Some(body),
+                        })
+                        .await;
+                }
+            }
+        });
+        self.bus = Some(bus);
+        self
     }
 
     pub async fn run(mut self) -> Result<()> {
         loop {
-            match self.read_message().await? {
-                Some(msg) => self.handle(msg).await?,
-                None => break Ok(()),
+            // Split borrows: tokio::select! needs disjoint mutable refs.
+            let DapServer {
+                reader,
+                pending_events,
+                ..
+            } = &mut self;
+            let next: Step = tokio::select! {
+                msg = read_dap_message(reader) => Step::Inbound(msg),
+                evt = pending_events.recv() => Step::Pending(evt),
+            };
+            match next {
+                Step::Inbound(Ok(Some(m))) => self.handle(m).await?,
+                Step::Inbound(Ok(None)) => break Ok(()),
+                Step::Inbound(Err(e)) => return Err(e),
+                Step::Pending(Some(p)) => self.write_event(p.event, p.body).await?,
+                Step::Pending(None) => break Ok(()),
             }
         }
     }
 
-    async fn read_message(&mut self) -> Result<Option<DapMessage>> {
-        let mut content_length: Option<usize> = None;
-        let mut header_buf = Vec::new();
-
-        loop {
-            header_buf.clear();
-            // Read one header line.
-            let n = read_line(&mut self.reader, &mut header_buf).await?;
-            if n == 0 {
-                return Ok(None);
-            }
-            let line = String::from_utf8_lossy(&header_buf);
-            let line = line.trim_end_matches(['\r', '\n']);
-            if line.is_empty() {
-                break; // end of headers
-            }
-            if let Some(rest) = line.strip_prefix("Content-Length:") {
-                content_length = Some(
-                    rest.trim()
-                        .parse::<usize>()
-                        .context("bad Content-Length value")?,
-                );
-            }
-        }
-
-        let len = content_length.context("DAP frame missing Content-Length")?;
-        let mut body = vec![0u8; len];
-        self.reader.read_exact(&mut body).await?;
-        let msg: DapMessage = serde_json::from_slice(&body)
-            .with_context(|| format!("parsing DAP body: {}", String::from_utf8_lossy(&body)))?;
-        Ok(Some(msg))
-    }
 
     async fn write_response(
         &mut self,
@@ -462,6 +546,31 @@ where
         command: &str,
         reverse: bool,
     ) -> Result<()> {
+        // Live mode: a forward `continue` while the extension is paused
+        // releases the request thread. No replay-cursor work.
+        let live_release = {
+            let state = self.state.lock().await;
+            !reverse && state.live_paused && self.bus.is_some()
+        };
+        if live_release {
+            if let Some(bus) = &self.bus {
+                bus.broadcast_to_extensions(DaemonMessage::Continue);
+            }
+            let mut state = self.state.lock().await;
+            state.live_paused = false;
+            state.var_refs.clear();
+            drop(state);
+            self.write_response(request_seq, command, true, None, None)
+                .await?;
+            return self
+                .write_event(
+                    "continued",
+                    Some(serde_json::json!({"threadId": 1, "allThreadsContinued": true})),
+                )
+                .await;
+        }
+
+        // Replay mode: walk the cursor honouring breakpoints.
         let mut state = self.state.lock().await;
         let bps = state.breakpoints.clone();
         if let Some(cur) = state.cursor.as_mut() {
@@ -475,8 +584,6 @@ where
         drop(state);
         self.write_response(request_seq, command, true, None, None)
             .await?;
-        // After running, we always emit `stopped` so the IDE re-fetches the
-        // stack — matches what an IDE expects from a step or breakpoint hit.
         self.write_event(
             "stopped",
             Some(serde_json::json!({
@@ -545,6 +652,15 @@ where
             state.breakpoints.points.insert((path.clone(), *line));
         }
         drop(state);
+
+        // Push to any currently-connected C extension so live requests stop
+        // at the new breakpoint set. No-op when no extension is connected.
+        if let Some(bus) = &self.bus {
+            bus.broadcast_to_extensions(DaemonMessage::SetBreakpoints {
+                file: path.clone(),
+                lines: lines.clone(),
+            });
+        }
 
         // DAP wants us to echo the verified breakpoints back. Function-
         // boundary recording means we can only honour file:line that

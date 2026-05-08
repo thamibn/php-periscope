@@ -99,14 +99,11 @@ async fn main() -> Result<()> {
     }
 
     if args.dap_stdio {
-        // Run the DAP loop on stdio in the foreground; when it exits, the
-        // process exits.
         tracing::info!("running DAP server on stdio");
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
-        let server = DapServer::new(stdin, stdout);
+        let server = DapServer::new(stdin, stdout).with_bus(bus.clone());
         server.run().await?;
-        // Cancel the background services so the process exits cleanly.
         for t in tasks {
             t.abort();
         }

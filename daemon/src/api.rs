@@ -62,8 +62,8 @@ pub fn router(state: ApiState) -> Router {
 
     Router::new()
         .route("/api/health", get(health))
-        .route("/api/traces", get(list_traces))
-        .route("/api/traces/:id", get(get_trace))
+        .route("/api/traces", get(list_traces).delete(clear_traces))
+        .route("/api/traces/:id", get(get_trace).delete(delete_trace))
         .route("/api/traces/:id/frames", get(list_frames))
         .route("/api/traces/:id/frames/:frame_id", get(get_frame))
         .route("/api/traces/:id/queries", get(list_queries))
@@ -252,6 +252,38 @@ async fn get_trace(
     AxPath(id): AxPath<String>,
 ) -> ApiResult<Json<TraceJson>> {
     Ok(Json(open_trace(&state, &id)?))
+}
+
+#[derive(Serialize)]
+struct DeleteResult {
+    deleted: usize,
+}
+
+async fn delete_trace(
+    State(state): State<Arc<ApiState>>,
+    AxPath(id): AxPath<String>,
+) -> ApiResult<Json<DeleteResult>> {
+    let path = trace_path_for(&state, &id)?;
+    std::fs::remove_file(&path).map_err(ApiError::internal)?;
+    Ok(Json(DeleteResult { deleted: 1 }))
+}
+
+async fn clear_traces(
+    State(state): State<Arc<ApiState>>,
+) -> ApiResult<Json<DeleteResult>> {
+    let mut count = 0usize;
+    let read = std::fs::read_dir(&state.trace_dir)
+        .map_err(ApiError::internal)?;
+    for entry in read {
+        let entry = entry.map_err(ApiError::internal)?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("cptrace") {
+            if std::fs::remove_file(&path).is_ok() {
+                count += 1;
+            }
+        }
+    }
+    Ok(Json(DeleteResult { deleted: count }))
 }
 
 #[derive(Deserialize, Default)]
