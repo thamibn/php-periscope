@@ -24,6 +24,7 @@
 #include "periscope_capture.h"
 #include "periscope_trace.h"
 #include "periscope_userland.h"
+#include "periscope_daemon_link.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(periscope)
 
@@ -434,6 +435,11 @@ static PHP_RINIT_FUNCTION(periscope)
             periscope_now_us_wall(),
             (uint32_t)getpid());
     }
+
+    /* Best-effort: open the daemon link if PERISCOPE_DAEMON_SOCKET is set.
+     * Silent no-op when the daemon isn't running. */
+    periscope_daemon_link_open(NULL);
+
     return SUCCESS;
 }
 
@@ -447,10 +453,29 @@ static PHP_RSHUTDOWN_FUNCTION(periscope)
         const char *path = periscope_trace_close(PERISCOPE_G(trace), duration);
         if (path) {
             fprintf(stderr, "[periscope] trace written: %s\n", path);
+
+            /* Notify any subscribed UI tab via the daemon. The "request_id"
+             * is the trace file's basename without extension — stable, unique,
+             * and what the HTTP API uses too. Best-effort: link may be
+             * inactive (daemon not running) which is fine. */
+            if (periscope_daemon_link_active()) {
+                const char *base = strrchr(path, '/');
+                base = base ? base + 1 : path;
+                char id[256];
+                size_t blen = strlen(base);
+                if (blen > 8 && strcmp(base + blen - 8, ".cptrace") == 0) {
+                    blen -= 8;
+                }
+                if (blen >= sizeof(id)) blen = sizeof(id) - 1;
+                memcpy(id, base, blen);
+                id[blen] = '\0';
+                periscope_daemon_link_send_request_finished(id, path, duration);
+            }
         }
         periscope_trace_free(PERISCOPE_G(trace));
         PERISCOPE_G(trace) = NULL;
     }
+    periscope_daemon_link_close();
     smart_str_free(&PERISCOPE_G(scratch));
     return SUCCESS;
 }

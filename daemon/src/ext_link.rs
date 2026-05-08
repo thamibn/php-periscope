@@ -30,22 +30,19 @@ pub enum ExtMessage {
         pid: u32,
         version: String,
     },
-    RequestStarted {
-        request_id: String,
-        trace_path: String,
-    },
+    /// One message per request, fired at RSHUTDOWN. Tells subscribed UI
+    /// tabs that a new trace is on disk and ready to read via /api/traces.
+    /// Per-frame streaming is intentionally NOT in v1 — for typical 50-200ms
+    /// HTTP requests the human reaction loop is too slow to react to live
+    /// frames; one ping at the end is the right granularity. Long-running
+    /// CLI/queue scenarios get an opt-in `periscope.live_stream=1` flag in
+    /// v1.1.
     RequestFinished {
         request_id: String,
         trace_path: String,
+        duration_micros: u64,
     },
-    /// Reserved for Phase 8 live breakpoint coordination.
-    FrameEntered {
-        frame_id: u32,
-        function: String,
-        file: String,
-        line: u32,
-    },
-    /// Reserved for Phase 8.
+    /// Reserved for Phase 8b live breakpoint coordination.
     BreakpointHit {
         frame_id: u32,
         file: String,

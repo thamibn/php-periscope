@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
     let mut tasks: Vec<tokio::task::JoinHandle<Result<()>>> = vec![];
 
     if !args.no_http {
-        let state = ApiState::new(args.trace_dir.clone(), project_root.clone());
+        let state = ApiState::new(args.trace_dir.clone(), project_root.clone(), bus.clone());
         let listen = args.listen;
         tasks.push(tokio::spawn(async move {
             api::serve(state, listen).await

@@ -213,4 +213,55 @@ else
 fi
 
 echo ""
+echo "Phase 8a smoke tests"
+echo "===================="
+
+if [ -x "$DAEMON_BIN" ]; then
+    # 17. End-to-end: extension pushes request_finished over the unix socket
+    # and the daemon fans it out as text to anyone listening on the LinkBus.
+    # We tap the bus via the ws_fanout integration test (already passing under
+    # cargo). Here we just exercise the C-side push: spawn the daemon with
+    # the socket enabled, run a PHP script with PERISCOPE_DAEMON_SOCKET set,
+    # and confirm the daemon log shows a hello + request_finished.
+    SMOKE_DIR=$(mktemp -d /tmp/periscope-smoke-8a-XXXXX)
+    SOCK="$SMOKE_DIR/daemon.sock"
+    DAEMON_LOG="$SMOKE_DIR/daemon.log"
+
+    # Run daemon with debug logging so we can grep it.
+    PERISCOPE_LOG=debug "$DAEMON_BIN" \
+        --trace-dir "$SMOKE_DIR" \
+        --listen "127.0.0.1:29996" \
+        --socket "$SOCK" \
+        --project-root "$(pwd)" >"$DAEMON_LOG" 2>&1 &
+    DAEMON_PID=$!
+    # Wait for the unix socket to appear.
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        [ -S "$SOCK" ] && break
+        sleep 0.1
+    done
+    [ -S "$SOCK" ] || { kill "$DAEMON_PID" 2>/dev/null; fail "8a: daemon socket never appeared"; }
+
+    # Run PHP with the daemon link enabled.
+    PERISCOPE_DAEMON_SOCKET="$SOCK" \
+      $PHP -d extension="$SO" -d periscope.trace_dir="$SMOKE_DIR" \
+        -r 'echo "ok\n";' >/dev/null 2>&1
+
+    # Daemon needs a moment to flush its tracing.
+    sleep 0.3
+    kill "$DAEMON_PID" >/dev/null 2>&1 || true
+    wait "$DAEMON_PID" >/dev/null 2>&1 || true
+
+    grep -q 'Hello' "$DAEMON_LOG" && \
+      pass "ext-link: daemon received Hello from C extension" || \
+      fail "ext-link: daemon never logged Hello (log: $DAEMON_LOG)"
+    grep -q 'RequestFinished' "$DAEMON_LOG" && \
+      pass "ext-link: daemon received RequestFinished after RSHUTDOWN" || \
+      fail "ext-link: daemon never logged RequestFinished (log: $DAEMON_LOG)"
+
+    rm -rf "$SMOKE_DIR"
+else
+    echo "  SKIP  periscope-daemon not built"
+fi
+
+echo ""
 echo "All smoke tests passed."

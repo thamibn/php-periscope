@@ -14,7 +14,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::{
-    extract::{Path as AxPath, Query, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path as AxPath, Query, State,
+    },
     http::StatusCode,
     response::{IntoResponse, Json, Response},
     routing::{get, post},
@@ -23,6 +26,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::ext_link::LinkBus;
 use crate::insights;
 use crate::replay::{self, TraceIndex};
 use crate::summary;
@@ -33,13 +37,19 @@ use crate::trace_view::{self, EventJson, FrameJson, TraceJson};
 pub struct ApiState {
     pub trace_dir: PathBuf,
     pub project_root: PathBuf,
+    pub bus: Arc<LinkBus>,
 }
 
 impl ApiState {
-    pub fn new(trace_dir: impl Into<PathBuf>, project_root: impl Into<PathBuf>) -> Self {
+    pub fn new(
+        trace_dir: impl Into<PathBuf>,
+        project_root: impl Into<PathBuf>,
+        bus: Arc<LinkBus>,
+    ) -> Self {
         Self {
             trace_dir: trace_dir.into(),
             project_root: project_root.into(),
+            bus,
         }
     }
 }
@@ -65,6 +75,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/traces/:id/state", get(get_state))
         .route("/api/file", get(read_file))
         .route("/api/traces/:id/rerun", post(rerun_stub))
+        .route("/ws", get(ws_handler))
         .with_state(Arc::new(state))
         .layer(cors)
 }
@@ -518,6 +529,56 @@ async fn get_state(
         (None, None) => replay::at_time(index, 0),
     };
     Ok(Json(reconstructed))
+}
+
+async fn ws_handler(
+    State(state): State<Arc<ApiState>>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let bus = state.bus.clone();
+    ws.on_upgrade(move |socket| handle_ws(socket, bus))
+}
+
+/// Subscribe a connected WebSocket client to live ext-link messages.
+/// Per Phase 8a: messages are pushed when interesting daemon-side events
+/// happen (currently `request_finished` from the C extension at RSHUTDOWN).
+/// The browser tab uses this to auto-open new traces with no user click.
+async fn handle_ws(mut socket: WebSocket, bus: Arc<LinkBus>) {
+    let mut rx = bus.subscribe();
+    // Greet the client so it knows the connection is live.
+    let _ = socket
+        .send(Message::Text(
+            serde_json::json!({"type":"hello","from":"periscope-daemon"}).to_string(),
+        ))
+        .await;
+
+    loop {
+        tokio::select! {
+            // Forward bus messages to the browser as JSON text frames.
+            recv = rx.recv() => match recv {
+                Ok(msg) => {
+                    let payload = serde_json::to_string(&msg)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    if socket.send(Message::Text(payload)).await.is_err() {
+                        break;
+                    }
+                }
+                // Lagged: tell the client + keep going.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    let _ = socket.send(Message::Text(
+                        serde_json::json!({"type":"lagged","missed":n}).to_string(),
+                    )).await;
+                }
+                Err(_) => break,
+            },
+            // Ignore inbound text but break on close.
+            inbound = socket.recv() => match inbound {
+                Some(Ok(Message::Close(_))) | None => break,
+                Some(Ok(_)) => continue,
+                Some(Err(_)) => break,
+            }
+        }
+    }
 }
 
 async fn rerun_stub(
