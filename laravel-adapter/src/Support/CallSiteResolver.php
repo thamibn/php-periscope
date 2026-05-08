@@ -32,7 +32,7 @@ final readonly class CallSiteResolver
             '/vendor/periscopephp/laravel/',
             '/laravel-adapter/src/',
         ],
-        private int $snippetLines = 2,
+        private int $snippetLines = 4,
         private int $maxBacktrace = 30,
     ) {}
 

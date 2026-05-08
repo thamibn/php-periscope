@@ -63,10 +63,14 @@ return [
     | Snippet capture
     |---------------------------------------------------------------------
     | When emitting a CallSite, include `lines * 2 + 1` lines of source
-    | around the resolved file:line (one above + one below by default).
-    | Set to 0 to disable snippet capture entirely (still records file:line).
+    | around the resolved file:line (four above + four below by default).
+    | Default 4 covers a typical multi-line Eloquent / Builder chain
+    | (`Model::query() -> ->where(...) -> ->where(...) -> ->first();`)
+    | plus the surrounding `if` / `foreach` so the offending line is
+    | recognisable without opening the editor. Set to 0 to disable
+    | snippets entirely (still records file:line).
     */
-    'snippet_lines' => (int) env('PERISCOPE_SNIPPET_LINES', 2),
+    'snippet_lines' => (int) env('PERISCOPE_SNIPPET_LINES', 4),
 
     /*
     |---------------------------------------------------------------------
