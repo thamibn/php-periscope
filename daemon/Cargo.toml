@@ -1,0 +1,34 @@
+[package]
+name = "periscope-daemon"
+version = "0.1.0-dev"
+edition = "2021"
+rust-version = "1.75"
+license = "Proprietary"
+description = "DAP server, replay engine, and trace reader for php-periscope"
+publish = false
+
+[[bin]]
+name = "periscope-dump"
+path = "src/bin/dump.rs"
+
+[lib]
+name = "periscope_daemon"
+path = "src/lib.rs"
+
+[dependencies]
+capnp     = "0.21"
+memmap2   = "0.9"
+clap      = { version = "4.5", features = ["derive"] }
+anyhow    = "1.0"
+
+[build-dependencies]
+capnpc = "0.21"
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+strip         = true

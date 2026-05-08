@@ -7,16 +7,20 @@
 #include "ext/standard/info.h"
 #include "Zend/zend_observer.h"
 #include "Zend/zend_smart_str.h"
+#include "SAPI.h"
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include "php_periscope.h"
 #include "periscope_filter.h"
 #include "periscope_capture.h"
+#include "periscope_trace.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(periscope)
 
@@ -25,64 +29,50 @@ ZEND_DECLARE_MODULE_GLOBALS(periscope)
 /* ------------------------------------------------------------------------ */
 
 PHP_INI_BEGIN()
-    STD_PHP_INI_BOOLEAN(
-        "periscope.skip_internal", "1",
-        PHP_INI_SYSTEM, OnUpdateBool,
-        skip_internal, zend_periscope_globals, periscope_globals)
-
-    STD_PHP_INI_BOOLEAN(
-        "periscope.disabled", "0",
-        PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool,
-        disabled, zend_periscope_globals, periscope_globals)
-
-    STD_PHP_INI_ENTRY(
-        "periscope.max_depth", "5",
-        PHP_INI_ALL, OnUpdateLong,
-        max_depth, zend_periscope_globals, periscope_globals)
-
-    STD_PHP_INI_ENTRY(
-        "periscope.max_string", "4096",
-        PHP_INI_ALL, OnUpdateLong,
-        max_string, zend_periscope_globals, periscope_globals)
-
-    STD_PHP_INI_ENTRY(
-        "periscope.max_array_items", "100",
-        PHP_INI_ALL, OnUpdateLong,
-        max_array_items, zend_periscope_globals, periscope_globals)
-
-    STD_PHP_INI_ENTRY(
-        "periscope.max_object_props", "50",
-        PHP_INI_ALL, OnUpdateLong,
-        max_object_props, zend_periscope_globals, periscope_globals)
-
-    STD_PHP_INI_ENTRY(
-        "periscope.namespace_filter", "",
-        PHP_INI_ALL, OnUpdateString,
-        namespace_filter, zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_BOOLEAN("periscope.skip_internal",     "1", PHP_INI_SYSTEM,                OnUpdateBool,   skip_internal,     zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_BOOLEAN("periscope.disabled",          "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, disabled,          zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.max_depth",         "5", PHP_INI_ALL,                   OnUpdateLong,   max_depth,         zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.max_string",     "4096", PHP_INI_ALL,                   OnUpdateLong,   max_string,        zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.max_array_items", "100", PHP_INI_ALL,                   OnUpdateLong,   max_array_items,   zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.max_object_props", "50", PHP_INI_ALL,                   OnUpdateLong,   max_object_props,  zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.namespace_filter",  "",  PHP_INI_ALL,                   OnUpdateString, namespace_filter,  zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.trace_dir",         "",  PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateString, trace_dir,        zend_periscope_globals, periscope_globals)
 PHP_INI_END()
 
 static void php_periscope_init_globals(zend_periscope_globals *g)
 {
-    g->skip_internal = true;
-    g->disabled = false;
-    g->depth = 0;
-    g->max_depth = 5;
-    g->max_string = 4096;
-    g->max_array_items = 100;
-    g->max_object_props = 50;
-    g->namespace_filter = NULL;
+    g->skip_internal     = true;
+    g->disabled          = false;
+    g->depth             = 0;
+    g->max_depth         = 5;
+    g->max_string        = 4096;
+    g->max_array_items   = 100;
+    g->max_object_props  = 50;
+    g->namespace_filter  = NULL;
+    g->trace_dir         = NULL;
+    g->trace             = NULL;
+    g->next_frame_id     = 0;
+    g->request_start_us  = 0;
     memset(&g->scratch, 0, sizeof(g->scratch));
+    memset(g->frame_id_at, 0, sizeof(g->frame_id_at));
 }
 
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                   */
 /* ------------------------------------------------------------------------ */
 
-static inline uint64_t periscope_now_us(void)
+static inline uint64_t periscope_now_us_monotonic(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000);
+}
+
+static inline uint64_t periscope_now_us_wall(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000000ULL + (uint64_t)tv.tv_usec;
 }
 
 static inline void periscope_current_options(periscope_capture_options_t *opts)
@@ -99,10 +89,47 @@ static inline void periscope_flush_scratch(void)
     if (buf->s && ZSTR_LEN(buf->s) > 0) {
         fwrite(ZSTR_VAL(buf->s), 1, ZSTR_LEN(buf->s), stderr);
     }
-    /* Reset length without freeing the buffer — keeps capacity for reuse */
-    if (buf->s) {
-        ZSTR_LEN(buf->s) = 0;
+    if (buf->s) ZSTR_LEN(buf->s) = 0;
+}
+
+/* Render a function name into a fresh malloc'd C string. Caller frees. */
+static char *render_function_name(const zend_function *func)
+{
+    smart_str s = {0};
+    periscope_capture_function_name(&s, func);
+    smart_str_0(&s);
+    if (!s.s) return NULL;
+    char *out = strdup(ZSTR_VAL(s.s));
+    smart_str_free(&s);
+    return out;
+}
+
+static char *render_args_summary(const zend_function *func,
+                                 zend_execute_data *ex,
+                                 const periscope_capture_options_t *opts)
+{
+    smart_str s = {0};
+    uint32_t n = ZEND_CALL_NUM_ARGS(ex);
+    for (uint32_t i = 0; i < n; i++) {
+        if (i > 0) smart_str_appendl(&s, ", ", 2);
+        zval *arg = ZEND_CALL_ARG(ex, i + 1);
+        periscope_capture_arg(&s, func, i, arg, opts);
     }
+    smart_str_0(&s);
+    char *out = s.s ? strdup(ZSTR_VAL(s.s)) : strdup("");
+    smart_str_free(&s);
+    return out;
+}
+
+static char *render_value_summary(const zval *value,
+                                  const periscope_capture_options_t *opts)
+{
+    smart_str s = {0};
+    periscope_capture_value(&s, value, opts);
+    smart_str_0(&s);
+    char *out = s.s ? strdup(ZSTR_VAL(s.s)) : strdup("");
+    smart_str_free(&s);
+    return out;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -116,10 +143,12 @@ static void periscope_fcall_begin(zend_execute_data *ex)
 
     int d = PERISCOPE_G(depth);
     if (d < PERISCOPE_MAX_DEPTH) {
-        PERISCOPE_G(enter_us)[d] = periscope_now_us();
+        PERISCOPE_G(enter_us)[d] = periscope_now_us_monotonic();
+        PERISCOPE_G(frame_id_at)[d] = ++PERISCOPE_G(next_frame_id);
     }
     PERISCOPE_G(depth) = d + 1;
 
+    /* stderr output (Phase 2/3 behaviour preserved) */
     smart_str *buf = &PERISCOPE_G(scratch);
     periscope_capture_options_t opts;
     periscope_current_options(&opts);
@@ -151,15 +180,48 @@ static void periscope_fcall_end(zend_execute_data *ex, zval *retval)
     if (d < 0) d = 0;
     PERISCOPE_G(depth) = d;
 
-    double elapsed_ms = -1.0;
-    if (d < PERISCOPE_MAX_DEPTH) {
-        uint64_t start = PERISCOPE_G(enter_us)[d];
-        if (start != 0) {
-            uint64_t now = periscope_now_us();
-            elapsed_ms = (double)(now - start) / 1000.0;
-        }
+    uint64_t now = periscope_now_us_monotonic();
+    uint64_t enter = (d < PERISCOPE_MAX_DEPTH) ? PERISCOPE_G(enter_us)[d] : 0;
+    double elapsed_ms = (enter != 0) ? (double)(now - enter) / 1000.0 : -1.0;
+
+    /* Trace writer — append the frame */
+    if (PERISCOPE_G(trace) != NULL && d < PERISCOPE_MAX_DEPTH) {
+        uint32_t frame_id  = PERISCOPE_G(frame_id_at)[d];
+        uint32_t parent_id = (d > 0) ? PERISCOPE_G(frame_id_at)[d - 1] : 0;
+        periscope_capture_options_t opts;
+        periscope_current_options(&opts);
+
+        char *fname = render_function_name(ex->func);
+        char *args  = render_args_summary(ex->func, ex, &opts);
+        char *ret   = render_value_summary(retval, &opts);
+
+        const char *file = (ex->func->type == ZEND_USER_FUNCTION
+                             && ex->func->op_array.filename)
+            ? ZSTR_VAL(ex->func->op_array.filename) : "";
+        uint32_t line = (ex->func->type == ZEND_USER_FUNCTION)
+            ? ex->func->op_array.line_start : 0;
+
+        uint64_t enter_offset = (enter > PERISCOPE_G(request_start_us))
+            ? (enter - PERISCOPE_G(request_start_us)) : 0;
+        uint64_t exit_offset  = (now > PERISCOPE_G(request_start_us))
+            ? (now - PERISCOPE_G(request_start_us)) : 0;
+
+        periscope_trace_frame(
+            PERISCOPE_G(trace),
+            frame_id, parent_id,
+            fname ? fname : "",
+            file, line,
+            enter_offset, exit_offset,
+            (uint32_t)(d + 1),
+            args ? args : "",
+            ret ? ret : "");
+
+        free(fname);
+        free(args);
+        free(ret);
     }
 
+    /* stderr output (Phase 2/3 behaviour preserved) */
     smart_str *buf = &PERISCOPE_G(scratch);
     periscope_capture_options_t opts;
     periscope_current_options(&opts);
@@ -178,16 +240,13 @@ static void periscope_fcall_end(zend_execute_data *ex, zval *retval)
         n = snprintf(tail, sizeof(tail), " @depth=%d\n", d + 1);
     }
     smart_str_appendl(buf, tail, n);
-
     periscope_flush_scratch();
 }
 
 static zend_observer_fcall_handlers periscope_observer_init(zend_execute_data *ex)
 {
     zend_observer_fcall_handlers handlers = {NULL, NULL};
-    if (ex == NULL || !periscope_filter_should_observe(ex->func)) {
-        return handlers;
-    }
+    if (ex == NULL || !periscope_filter_should_observe(ex->func)) return handlers;
     handlers.begin = periscope_fcall_begin;
     handlers.end   = periscope_fcall_end;
     return handlers;
@@ -202,7 +261,6 @@ static PHP_MINIT_FUNCTION(periscope)
     ZEND_INIT_MODULE_GLOBALS(periscope, php_periscope_init_globals, NULL);
     REGISTER_INI_ENTRIES();
 
-    /* PERISCOPE_DISABLE=1 env wins over INI; useful as a per-process kill switch */
     const char *env = getenv("PERISCOPE_DISABLE");
     if (env && env[0] != '\0' && env[0] != '0') {
         PERISCOPE_G(disabled) = true;
@@ -223,19 +281,54 @@ static PHP_MSHUTDOWN_FUNCTION(periscope)
 static PHP_RINIT_FUNCTION(periscope)
 {
     PERISCOPE_G(depth) = 0;
-    /* Pre-grow scratch buffer to avoid mid-call reallocations on hot paths */
+    PERISCOPE_G(next_frame_id) = 0;
+    PERISCOPE_G(request_start_us) = periscope_now_us_monotonic();
+
     if (PERISCOPE_G(scratch).s == NULL) {
         smart_str_alloc(&PERISCOPE_G(scratch), 4096, 0);
         smart_str_0(&PERISCOPE_G(scratch));
         ZSTR_LEN(PERISCOPE_G(scratch).s) = 0;
+    }
+
+    /* Open a trace if periscope.trace_dir is set */
+    PERISCOPE_G(trace) = NULL;
+    const char *trace_dir = PERISCOPE_G(trace_dir);
+    if (trace_dir && trace_dir[0] != '\0' && !PERISCOPE_G(disabled)) {
+        char cwd[1024];
+        if (getcwd(cwd, sizeof(cwd)) == NULL) cwd[0] = '\0';
+
+        const char *entry_point = "";
+        if (SG(request_info).path_translated) {
+            entry_point = SG(request_info).path_translated;
+        }
+
+        PERISCOPE_G(trace) = periscope_trace_open(
+            trace_dir,
+            PHP_VERSION,
+            PHP_PERISCOPE_VERSION,
+            sapi_module.name ? sapi_module.name : "",
+            entry_point,
+            cwd,
+            periscope_now_us_wall(),
+            (uint32_t)getpid());
     }
     return SUCCESS;
 }
 
 static PHP_RSHUTDOWN_FUNCTION(periscope)
 {
-    /* Free scratch on full request end so we don't accumulate across requests
-     * if buffer grew very large for one outlier */
+    if (PERISCOPE_G(trace) != NULL) {
+        uint64_t now = periscope_now_us_monotonic();
+        uint64_t duration = (now > PERISCOPE_G(request_start_us))
+            ? (now - PERISCOPE_G(request_start_us)) : 0;
+
+        const char *path = periscope_trace_close(PERISCOPE_G(trace), duration);
+        if (path) {
+            fprintf(stderr, "[periscope] trace written: %s\n", path);
+        }
+        periscope_trace_free(PERISCOPE_G(trace));
+        PERISCOPE_G(trace) = NULL;
+    }
     smart_str_free(&PERISCOPE_G(scratch));
     return SUCCESS;
 }
@@ -253,7 +346,7 @@ static PHP_MINFO_FUNCTION(periscope)
 zend_module_entry periscope_module_entry = {
     STANDARD_MODULE_HEADER,
     PHP_PERISCOPE_EXTNAME,
-    NULL,                       /* functions */
+    NULL,
     PHP_MINIT(periscope),
     PHP_MSHUTDOWN(periscope),
     PHP_RINIT(periscope),
@@ -261,9 +354,7 @@ zend_module_entry periscope_module_entry = {
     PHP_MINFO(periscope),
     PHP_PERISCOPE_VERSION,
     PHP_MODULE_GLOBALS(periscope),
-    NULL,
-    NULL,
-    NULL,
+    NULL, NULL, NULL,
     STANDARD_MODULE_PROPERTIES_EX
 };
 

@@ -104,4 +104,31 @@ killed="$(PERISCOPE_DISABLE=1 $PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/nul
   fail "kill switch leaked $killed observations"
 
 echo ""
+echo "Phase 4 smoke tests"
+echo "==================="
+
+# 13. trace_dir writes a .cptrace file
+TRACE_DIR=$(mktemp -d /tmp/periscope-smoke-XXXXX)
+$PHP -d extension="$SO" -d periscope.trace_dir="$TRACE_DIR" "$fixture" >/dev/null 2>&1
+TRACE_FILE=$(ls "$TRACE_DIR"/*.cptrace 2>/dev/null | head -1)
+[ -n "$TRACE_FILE" ] && [ -s "$TRACE_FILE" ] && \
+  pass "trace_dir produces non-empty .cptrace ($(wc -c < "$TRACE_FILE") bytes)" || \
+  fail "trace_dir did not produce a .cptrace file"
+
+# 14. Generated trace is valid Cap'n Proto (parseable by daemon reader)
+DUMP_BIN="$(pwd)/daemon/target/debug/periscope-dump"
+if [ -x "$DUMP_BIN" ]; then
+    DUMP_OUT="$($DUMP_BIN "$TRACE_FILE" 2>&1)"
+    echo "$DUMP_OUT" | grep -q "php           8.3" && \
+      pass "Rust reader parses trace and shows PHP 8.3 meta" || \
+      fail "Rust reader failed to parse trace"
+    echo "$DUMP_OUT" | grep -q "frames " && \
+      pass "Rust reader enumerates frames" || \
+      fail "Rust reader saw no frames"
+else
+    echo "  SKIP  Rust dump binary not built (run 'cargo build' in daemon/)"
+fi
+rm -rf "$TRACE_DIR"
+
+echo ""
 echo "All smoke tests passed."
