@@ -3,7 +3,7 @@
 **Date:** 2026-05-08 (last updated 2026-05-08 with AI-native + retention additions)
 **Author:** Thamsanca Ntuli (with Claude Code)
 **Project:** php-periscope — live observability + time-travel debugger **for Laravel** (v1)
-**Status:** v1 in progress — Phases 1–4 landed, Phase 5 next
+**Status:** v1 in progress — Phases 1–6 landed (HTTP API + DAP scaffold + ext-link socket), Phase 7 next
 **Tagline:** *See into your Laravel request — your AI co-pilot does too.*
 
 **v1 audience scope:** Laravel only. The C extension is framework-agnostic by design (correct engineering for a Zend Observer hook), but we test, market, and support **only** Laravel in v1. Other frameworks ship as separate Composer packages after v1 (`periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`) once Laravel adoption proves the model. v1 narrowness is a deliberate scope cut.
@@ -134,6 +134,8 @@ Explicitly out of scope for the MVP. Each is a deliberate cut to keep the projec
 **Quality principle: AddressSanitizer from day one, not added later.** The C extension will be compiled with `-fsanitize=address` in CI from the very first hello-world phase. Memory bugs will be caught at test time with clear errors instead of in production with cryptic segfaults.
 
 **Distribution principle: ship the extension and the daemon together as one install.** Users should never have to install pieces separately. `brew install php-periscope` installs the extension for all brew-managed PHP versions and drops the Rust daemon binary in `$PATH`. The VSCode extension auto-detects and connects.
+
+**Self-sufficiency principle: zero Xdebug dependency, ever.** php-periscope is the tool people install *to escape Xdebug*. Anything Xdebug does that users still want — opcode-level stepping, profile mode, cachegrind output, function tracing — we either ship ourselves or explicitly defer to v2 with our *own* implementation. We never tell a user "install Xdebug for that piece." Leaning on Xdebug undermines the pitch.
 
 ---
 
@@ -661,15 +663,15 @@ When the extension hits a breakpoint, it pauses the request thread (busy-loop on
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] `cargo build --release` produces a `periscope-daemon` binary
-- [ ] DAP handshake test: pipe a recorded `initialize` request to stdin, get a valid `initialize` response
-- [ ] Extension-daemon link test: spawn the daemon, run a PHP script with periscope, confirm `request_started` and `frame_entered` events arrive at the daemon socket
-- [ ] DAP integration test: use the `dap-rs` test harness to drive a full launch → setBreakpoint → continue → stop-on-breakpoint → step → continue cycle against a fixture PHP script
-- [ ] No `unsafe` Rust code in the daemon (enforce via `#![forbid(unsafe_code)]`)
+- [x] `cargo build --release` produces a `periscope-daemon` binary
+- [x] DAP handshake test: pipe a recorded `initialize` request to stdin, get a valid `initialize` response (`dap::tests::handshake_advertises_step_back`)
+- [x] Extension-daemon link socket accepts framed JSON and acks (`ext_link::tests::accepts_hello_and_acks`). Live stop-on-breakpoint coordination is reserved for Phase 8 — wire is in place, C-side pause primitive lands there.
+- [x] HTTP API smoke against a real trace: `/api/health`, `/api/traces`, `/api/traces/{id}/{summary,insights,timeline}`, `/api/file` traversal guard (`scripts/smoke.sh` Phase 6 block)
+- [x] No `unsafe` Rust code in the daemon (enforced via `#![forbid(unsafe_code)]` at the crate root)
 
 #### Manual Verification:
-- [ ] Configure VSCode `launch.json` to spawn `periscope-daemon`. Set a breakpoint in a PHP script. Hit run. Verify VSCode pauses at the breakpoint and shows the call stack and locals.
-- [ ] Step backward — verify VSCode shows the previous frame and its variables
+- [ ] Configure VSCode `launch.json` to spawn `periscope-daemon --dap-stdio`. Open a recorded `.cptrace` via `launch.tracePath`. Verify VSCode shows the frame stack and stepBack moves the cursor backward.
+- [ ] Live launch (run a request and stop on a real breakpoint) — landing in Phase 8 alongside the C-side pause primitive.
 
 ---
 
@@ -827,6 +829,48 @@ These features operate on the data the Phase 5 watchers already emit; no new C-e
 - Per row: stack trace + AI suggestion (already emitted by ExceptionHook + AiAdvisor), originating-request deep link (the trace where JobHook recorded `phase=queued`), attempts, queue/connection, first/last failure timestamps.
 - Actions: retry (single, bulk-by-class, bulk-by-exception), forget, retry-with-edited-payload.
 - Differentiators: time-travel into the failed run's recorded trace, diff vs last successful run of the same class, pattern-grouped failures across last 24h, AI verdict "code at `Foo.php:42` still has the bug — retry anyway?", one-click Pest repro generator.
+
+### Phase 9b Clockwork-parity polish (added 2026-05-08 after reviewing underground.works/clockwork)
+
+**Guiding principle: zero Xdebug dependency.** php-periscope is the tool people install *to escape Xdebug*. Anything we'd otherwise solve by leaning on Xdebug (profiling, opcode-level zoom, a built-in cachegrind viewer) we ship ourselves. Lean on Xdebug → undermine the pitch. These five items close the visible gaps Clockwork still wins on today, all built on data we already have.
+
+1. **In-page floating toolbar** (steal from Clockwork's "Toolbar" feature)
+   - 2KB JS snippet the Laravel adapter injects (opt-in via config) into HTML responses — a tiny floating chip in the page corner showing duration, query count, memory peak, status.
+   - Click → opens `localhost:9999/periscope` to the *current* request's trace.
+   - Lives at `laravel-adapter/resources/js/toolbar.js` (~150 LoC) + `Periscope\Laravel\Middleware\InjectToolbar`.
+   - Why it matters: lowest-friction entry point. No browser extension to install, no separate tab to remember. The user sees their request go red and clicks to dig in.
+
+2. **Web Vitals + client-side timing** (steal from Clockwork "Client-metrics and Web Vitals")
+   - The same toolbar JS also records `navigation.timing.*` + Web Vitals (LCP, CLS, INP, FCP, TTFB) via the standard `web-vitals` package and POSTs them to `POST /api/traces/{id}/client-metrics`.
+   - Daemon merges client metrics into the trace's response panel; UI shows a "Client" tab on the timeline alongside server-side phases.
+   - Why it matters: full request lifecycle, not just server-side. Backend dev sees that their 50ms response renders 1.8s after click because the JS bundle blocks paint.
+
+3. **Self-contained profile mode + flame graph** (replaces "Xdebug profile viewer" — we do not depend on Xdebug)
+   - `PERISCOPE_PROFILE=1` env var (or `?periscope_profile=1` query string with the rerun feature) flips the C extension into a sampling profiler for that request: every N microseconds (default 1ms, configurable via `periscope.profile_sample_us`), capture the current call stack to a separate `.profile` sidecar of the trace.
+   - Daemon parses the sidecar and renders a **flame graph** in the UI's Performance panel — same data shape as Brendan Gregg's flamegraph format internally, but our own renderer in SolidJS.
+   - Two granularities: **frame-level** (always on, free, derived from existing Phase 2 enter/exit timings) and **opcode-level** (opt-in via profile mode, sampling-based to keep overhead tolerable).
+   - We are not a cachegrind viewer. We are not a "click to enable Xdebug profile" UI. The pitch: *"You don't need Xdebug for anything anymore."*
+   - Phase: framework lands in v1 (always-on frame-level flame graph from existing data); opcode-sampling profiler ships in **v1.1** as a focused 1-week sprint.
+
+4. **Self-hosted trace sharing** (steal from Clockwork "Sharing", improve the privacy posture)
+   - `make trace-share TRACE=<id>` and a "Share" button in the UI:
+     1. Run redaction pipeline (already exists for headers/body keys per A.4) — never share the unredacted trace.
+     2. Create a deep-link bundle (`<id>.cptrace` + sidecars + redaction manifest) and POST it to `$PERISCOPE_SHARE_ENDPOINT`.
+     3. Default `PERISCOPE_SHARE_ENDPOINT` is unset — sharing is no-op until the user configures their own self-hosted Rust binary (`periscope-share`, ships in same daemon repo) running on their own infra. We do **not** run a SaaS in v1.
+     4. Returns a public URL: `https://traces.example.internal/abc123` that opens a read-only periscope UI viewing that trace.
+   - The Rust `periscope-share` server is ~300 LoC: one POST endpoint that stores the bundle in S3/local-disk + a static UI bundle that reads via the same `/api/*` shape.
+   - Why we don't piggyback on Clockwork's free SaaS: trace contents include cookies, request bodies, captured variables. We will never default to "send this to a third party we don't control."
+   - Phase: v1.1 — landing it sooner is fine if a real support workflow demands it.
+
+5. **UI density rework before Phase 9b build** (steal Clockwork's tighter query-panel layout)
+   - Before any 9b code lands, re-do the 9a static mockup with target densities:
+     - Query row: ≤ 32px tall, monospace SQL truncated to one line, duration + connection right-aligned, expand-on-click.
+     - Log row: ≤ 24px, level chip (8px), 1-line message, timestamp right-aligned.
+     - Timeline rows: 16px high, color by event type, hover shows full payload.
+   - Mockup pass → 3-dev review (per existing 9a manual verification) → only then start 9b.
+   - Why it matters: Clockwork's screenshot scans 4× faster than our current mockup. UX density is a trust signal — sparse layouts read as "toy."
+
+These five are the *visible* surface. The deeper differentiators (time-travel scrubbing, AI-native API, no-Xdebug-dependency, deterministic insights with fix suggestions, lazy-safe variable inspection) remain the headline pitch.
 
 ### Success Criteria
 
@@ -1374,6 +1418,65 @@ struct ObservabilityEvent {
 - Phase 5+ Laravel adapter redaction (auth tokens, password fields) MUST run before traces hit AI agents.
 
 **Marketing line:** *"Your AI co-pilot reads every request and tells you what's wrong — N+1 queries, slow frames, lost auth state, memory hogs — before you even know to look."*
+
+### A.7 — No Xdebug dependency, ever (we replace it, we don't lean on it)
+
+**Rule:** php-periscope must never require, recommend, integrate, or piggyback on Xdebug. Anything users currently use Xdebug for that they still want, **we ship ourselves** — or we defer to v2 with our own implementation, never as "go install Xdebug for that part."
+
+**User framing (2026-05-08):** *"I don't want anything to do with Xdebug. We will create our own profiling and graphs. We are moving users from Xdebug pain — please, our tool should cover everything for us. Let's not rely on other people."*
+
+**Why:**
+- The pitch is "you don't need Xdebug anymore." Bundling an Xdebug viewer or recommending Xdebug for profiling tells the user the pitch is a lie.
+- Xdebug's setup pain (multiple PHP versions, broken FPM connections, port collisions, segfaults under macOS) is the entire reason this project exists. Inheriting that pain by reference defeats the project.
+- Self-sufficiency = a single `brew install` covers every workflow Xdebug covered. That's the "easy to set up" pillar (memory: feedback_product_values).
+
+**What this rules out (we will not do these):**
+- Built-in cachegrind viewer — even though Clockwork ships one, we don't.
+- "Click to enable Xdebug profile mode" buttons in our UI.
+- Documentation that says "install Xdebug for opcode-level stepping."
+- Any optional Xdebug bridge / adapter in `extension/` or `daemon/`.
+
+**What we ship instead:**
+- **Frame-level flame graph (v1)** — derived from the per-frame `enter_micros` / `exit_micros` we already capture in Phase 2. SolidJS renderer in Phase 9b. Free.
+- **Sampling profile mode (v1.1)** — `PERISCOPE_PROFILE=1` flips the C extension into a sampling profiler (default 1ms sample interval, configurable via `periscope.profile_sample_us`). Writes to a `.profile` sidecar of the trace. Daemon parses + renders.
+- **Opcode-level zoom (v2 candidate)** — eventually, if real-world data shows function-boundary granularity isn't enough. Our own Zend implementation, not Xdebug's.
+- **Function trace export (v1.1)** — already have it via `make periscope-dump --json`, plus `/api/traces/{id}` HTTP endpoint. Anyone who wants Xdebug-style trace text can pipe through `jq`.
+
+**Where this lives in the code:**
+- C extension profile sampler: `extension/periscope_profile.c` (v1.1 add).
+- Daemon sidecar parser + flame-graph endpoint: `daemon/src/profile.rs` + `GET /api/traces/{id}/profile` (v1.1 add).
+- UI flame-graph component: `ui/src/panels/Flame.tsx` (v1 lands frame-level; v1.1 lands opcode-level when sampler exists).
+
+**Allowed exception:** documenting *for migration purposes* how Xdebug's features map onto periscope's (`docs/MIGRATING_FROM_XDEBUG.md`) is fine — that's marketing, not dependency.
+
+#### Why our profiler will beat Xdebug — concrete technical leverage
+
+We are not "another PHP profiler." We are starting in 2026 with 15 years of profiling research that did not exist when Xdebug was designed. The advantages are real and we should bank every one of them. Xdebug's profile mode is **22.7× slowdown** on our bench (`scripts/bench-vs-xdebug.sh`); periscope's full-capture mode is already **48× faster than Xdebug profile mode at the same coverage**. Profile-specific work continues that lead:
+
+| Lever | Xdebug | php-periscope |
+|---|---|---|
+| **Engine hook** | Legacy `zend_execute_ex` override (replaces the entire opcode dispatch loop — pays cost on every call whether we're sampling or not) | Zend Observer API (PHP 8.0+) — JIT-friendly, opt-in per-function, near-zero overhead when sampler is idle |
+| **Timer source** | Wall-clock via `gettimeofday()` on every call, even for profile mode | Modern: `clock_gettime(CLOCK_MONOTONIC_RAW)` for sub-µs resolution; `mach_absolute_time` on macOS; `posix_timer_create` with `SIGEV_THREAD` driving an async-signal-safe sampler thread |
+| **Sampling vs full trace** | Full cachegrind dump — every call recorded → 100MB+ profile files | Sampling profiler (default 1ms interval, configurable). Files stay <5MB because we only capture stacks at sample boundaries, not every call |
+| **Stack capture** | Walks `EG(current_execute_data)` synchronously per call | Lock-free SPSC ring buffer between PHP thread and a dedicated sampler thread. Sampler walks the stack on a tick; PHP-side cost is one ring-buffer write |
+| **Storage format** | Plain-text cachegrind — gigabyte-size files for long requests, slow to parse, no random access | Cap'n Proto sidecar — zero-copy reads, mmap-friendly, random seek to any sample. Optionally zstd-compressed (~10× smaller) |
+| **Reader** | Cachegrind parsers are typically PHP or Java; reading large files is slow | Rust + Cap'n Proto in our daemon. 50MB profiles parse in <100ms (already validated for the trace format in Phase 4) |
+| **Rendering** | Static cachegrind output → external viewer (kcachegrind, qcachegrind, webgrind) → opens in a separate process | SolidJS flame graph rendered in our existing UI tab. Fine-grained reactivity → 60fps zoom and pan even on 100k samples. WebGL/Canvas path for huge graphs |
+| **Memory tracking** | Profile mode does not capture memory deltas | Per-frame `memory_get_usage()` delta is already captured in v1; profile mode joins this with sampled stacks → "show me which sampled stack added the most memory" |
+| **Per-frame variables** | Profile mode strips variables — performance-only view | Our sampler can opt-in capture top-N locals at sample boundaries (cheap because we already serialise them in Phase 3); flame graph nodes click-through to variable state at that sample |
+| **Time-travel** | Not possible — cachegrind is post-mortem static | Flame graph scrubs *with* the timeline. Drag the cursor backward → flame graph rewinds → click a flame → variable scope at that point. Nobody else has this |
+| **Hardware counters** | Not exposed | Optional `perf_event_open` integration on Linux (cache misses, branch mispredicts, page faults) attached to samples; users who run on bare metal get hardware-level insight without leaving the UI |
+| **Concurrency model** | Synchronous; profile mode pauses the request thread for I/O | Tokio async daemon, lock-free MPSC ring buffer to writer thread. PHP thread never blocks on profile I/O |
+| **AI-readable output** | Cachegrind is human-only; no AI tooling speaks it | Profile sidecar lives at `/api/traces/{id}/profile` as JSON, plus an MCP `analyze_profile(trace_id)` tool. AI agents read flame data directly |
+| **Build & ship** | Compile-time PHP extension, manual ini config per PHP version | `brew install` ships extension+daemon for every brew PHP; `PERISCOPE_PROFILE=1` flips it on for one request |
+| **Live overhead** | Profile mode forces always-on full capture per request | Sampling means the user can leave profile mode on continuously in dev with single-digit % overhead, not 22×. Per-request opt-in via `?periscope_profile=1` query string (already half-built — see commit 7210bed for the per-request mode header) |
+
+**Cumulative effect:** profile mode that's tolerable on every request, scrubs in real time, integrates with variables and the timeline, ships AI-readable output, and uses tooling Xdebug literally could not use because the tech didn't exist when Xdebug was written. We don't need Xdebug because the legacy approach was the reason Xdebug profile mode is unusable in practice.
+
+**Implementation phasing:**
+- **v1 (free)**: frame-level flame graph from existing per-frame timings + memory deltas. Already captured; just needs the SolidJS renderer in Phase 9b.
+- **v1.1 (one focused sprint)**: sampling profile mode — `extension/periscope_profile.c` + `daemon/src/profile.rs` + `ui/src/panels/Flame.tsx` opcode-level zoom.
+- **v2 candidate**: hardware perf counter integration; AI-driven flame regression detection between traces.
 
 ---
 

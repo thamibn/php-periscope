@@ -2,11 +2,14 @@
 #![deny(warnings)]
 
 //! Public crate root for `periscope-daemon`.
-//!
-//! v1 surface is intentionally tiny: a `Trace` reader. DAP server +
-//! replay engine come in Phase 6 / 7.
 
+pub mod api;
+pub mod dap;
+pub mod ext_link;
+pub mod insights;
+pub mod summary;
 pub mod trace;
+pub mod trace_view;
 
 #[allow(clippy::all)]
 #[allow(unused_imports)]

@@ -141,4 +141,67 @@ remaining="$(ls "$RTD"/*.cptrace 2>/dev/null | wc -l | tr -d ' ')"
 rm -rf "$RTD"
 
 echo ""
+echo "Phase 6 smoke tests"
+echo "==================="
+
+DAEMON_BIN="$(pwd)/daemon/target/debug/periscope-daemon"
+if [ -x "$DAEMON_BIN" ]; then
+    # 16. Generate a trace then point the daemon at the dir; hit a few /api/*
+    SMOKE_TRACE_DIR=$(mktemp -d /tmp/periscope-smoke-api-XXXXX)
+    SMOKE_PORT=29998
+    $PHP -d extension="$SO" -d periscope.trace_dir="$SMOKE_TRACE_DIR" \
+        -r 'function greet($n){ return "hi $n"; } echo greet("world");' >/dev/null 2>&1
+    TRACE_FILE=$(ls "$SMOKE_TRACE_DIR"/*.cptrace 2>/dev/null | head -1)
+    TRACE_ID=$(basename "$TRACE_FILE" .cptrace)
+    [ -n "$TRACE_ID" ] || fail "Phase 6: failed to seed a trace for daemon"
+
+    PERISCOPE_LOG=warn "$DAEMON_BIN" \
+        --trace-dir "$SMOKE_TRACE_DIR" \
+        --no-socket \
+        --listen "127.0.0.1:$SMOKE_PORT" \
+        --project-root "$(pwd)" >/dev/null 2>&1 &
+    DAEMON_PID=$!
+    # Tiny startup wait — daemon is sub-100ms in practice.
+    sleep 0.4
+
+    HEALTH=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/health" 2>/dev/null || true)
+    [ -n "$HEALTH" ] && echo "$HEALTH" | grep -q '"status":"ok"' && \
+      pass "/api/health responds {status:ok}" || \
+      fail "/api/health failed (got: $HEALTH)"
+
+    LIST=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/traces" 2>/dev/null || true)
+    echo "$LIST" | grep -q "$TRACE_ID" && \
+      pass "/api/traces lists the seeded trace" || \
+      fail "/api/traces did not list trace $TRACE_ID"
+
+    SUM=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/traces/$TRACE_ID/summary" 2>/dev/null || true)
+    echo "$SUM" | grep -q '"queries"' && \
+      pass "/api/traces/{id}/summary returns aggregate panels" || \
+      fail "/api/traces/{id}/summary missing queries panel"
+
+    INS=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/traces/$TRACE_ID/insights" 2>/dev/null || true)
+    echo "$INS" | grep -q '"slow_frames"' && \
+      pass "/api/traces/{id}/insights returns deterministic insights" || \
+      fail "/api/traces/{id}/insights missing slow_frames"
+
+    TL=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/traces/$TRACE_ID/timeline" 2>/dev/null || true)
+    echo "$TL" | grep -q '"frame_enter"' && \
+      pass "/api/traces/{id}/timeline returns frame_enter entries" || \
+      fail "/api/traces/{id}/timeline missing frame_enter"
+
+    # /api/file path traversal is blocked.
+    FORBIDDEN_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+        "http://127.0.0.1:$SMOKE_PORT/api/file?path=/etc/passwd")
+    [ "$FORBIDDEN_CODE" = "403" ] && \
+      pass "/api/file refuses paths outside the project root (403)" || \
+      fail "/api/file traversal returned $FORBIDDEN_CODE (expected 403)"
+
+    kill "$DAEMON_PID" >/dev/null 2>&1 || true
+    wait "$DAEMON_PID" >/dev/null 2>&1 || true
+    rm -rf "$SMOKE_TRACE_DIR"
+else
+    echo "  SKIP  periscope-daemon not built (run 'cargo build' in daemon/)"
+fi
+
+echo ""
 echo "All smoke tests passed."

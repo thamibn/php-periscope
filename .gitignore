@@ -56,3 +56,5 @@ vscode-extension/*.vsix
 # Trace artifacts
 /tmp/periscope/
 *.cptrace
+.playwright-mcp/
+clockwork-*.png
