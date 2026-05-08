@@ -70,7 +70,7 @@ return [
     | recognisable without opening the editor. Set to 0 to disable
     | snippets entirely (still records file:line).
     */
-    'snippet_lines' => (int) env('PERISCOPE_SNIPPET_LINES', 4),
+    'snippet_lines' => (int) env('PERISCOPE_SNIPPET_LINES', 6),
 
     /*
     |---------------------------------------------------------------------

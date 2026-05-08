@@ -1325,6 +1325,7 @@ struct ObservabilityEvent {
    - `GET /api/traces/{id}/timeline` — event-ordered list for scrubbing
    - `GET /api/traces/{id}/exceptions` — any exceptions thrown
    - `GET /api/traces/{id}/insights` — **deterministic** heuristics: N+1 detection, DB-in-loop, slow-frame ranking, memory hog detection. Independent of any AI.
+   - `GET /api/file?path=<abs>&line=<n>&radius=<k>` — read lines `line-k` through `line+k` of a source file on disk. Lets the UI / AI agent zoom from the trace's stored ±6 snippet to any radius (or the whole file) without bloating the trace. Path must be inside the project (daemon enforces project root). Returns the lines plus the file's mtime so the UI can warn if the file was edited after the trace was captured.
 
 2. **MCP server** — Anthropic's protocol for tool servers, supported by Claude Code natively. **Ship as a `php artisan periscope:mcp` command in the Laravel adapter using `laravel/mcp` (Laravel 13's first-party MCP SDK)** — NOT a separate Rust binary. This means:
    - No extra binary to distribute / install — already in the Composer package.
