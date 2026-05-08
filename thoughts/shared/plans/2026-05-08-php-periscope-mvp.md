@@ -101,7 +101,7 @@ After MVP ship (~3–4 months part-time / 6–8 weeks full-time AI-assisted):
 **Verification:**
 
 - End-to-end smoke test: a sample Laravel app in `examples/laravel-demo/` that, when run with periscope attached, hits a known route, pauses at a known breakpoint, shows expected query count and log output in the UI, and successfully scrubs backward.
-- Real-world test: clone the Laravel skeleton + the maintainer's `property-core-backend` Laravel app; run their test suites with periscope loaded; no regressions, no segfaults under AddressSanitizer.
+- Real-world test: clone the Laravel skeleton + a representative production-grade Laravel app (maintainer-supplied, gated submodule); run their test suites with periscope loaded; no regressions, no segfaults under AddressSanitizer.
 
 ---
 
@@ -592,7 +592,7 @@ Naive in-process detector: if the same SQL pattern (with bindings normalized) ru
 - [ ] Integration test: install adapter into Laravel skeleton, run a route that hits DB + cache + dispatches a job, verify trace contains the expected events
 
 #### Manual Verification:
-- [ ] Install adapter in Thami's `property-core-backend` repo on a feature branch, run a real listing detail page, manually inspect the trace for sane query/log/cache events
+- [ ] Install adapter in a representative production-grade Laravel app (maintainer-supplied) on a feature branch, run a real listing detail page, manually inspect the trace for sane query/log/cache events
 - [ ] Confirm N+1 warning fires for a known N+1 case (the `agencies` query on listings index — based on the Phase 1 mockup we discussed)
 
 ---
@@ -860,7 +860,7 @@ Find what breaks before users do. Run periscope against three large open-source 
 - Run its test suite with the extension loaded
 - Run a sample request through the periscope UI
 
-**File**: `tests/real-world/property-core-backend/` (gated submodule, maintainer-only)
+**File**: `tests/real-world/private-app/` (gated submodule, maintainer-only)
 - The maintainer's real production-grade Laravel app — listings, agencies, jobs, queues, the full surface
 - Run a representative set of routes; verify no regressions, all observability events surface as expected
 - Used as the integration-truth signal before each release
@@ -888,7 +888,7 @@ Record baseline timings for each app's standard route (with and without extensio
 - [ ] Zero ASan errors across all three real-world test runs
 
 #### Manual Verification:
-- [ ] Use periscope to debug a real bug in `property-core-backend` (Thami's day job) — does it actually help, or is it slower than `dd()`?
+- [ ] Use periscope to debug a real bug in `the maintainer-supplied private Laravel app) — does it actually help, or is it slower than `dd()`?
 
 ---
 
@@ -1082,7 +1082,7 @@ After Tracks A, B, C merge:
 ### Integration tests
 
 - End-to-end: `tests/integration/e2e.sh` spawns the daemon, runs a fixture PHP script, drives DAP commands via a mock client, asserts on the resulting trace and DAP responses
-- Real-world (Phase 10): Laravel skeleton + maintainer's `property-core-backend` test suites with periscope loaded
+- Real-world (Phase 10): Laravel skeleton + maintainer-supplied private test suites with periscope loaded
 
 ### Memory safety tests
 
