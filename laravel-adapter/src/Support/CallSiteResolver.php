@@ -27,6 +27,10 @@ final readonly class CallSiteResolver
             '/vendor/illuminate/',
             '/vendor/symfony/',
             '/vendor/composer/',
+            // The adapter's own frames must be skipped so call sites land on
+            // user code, not on QueryHook.php / CacheHook.php / etc.
+            '/vendor/periscopephp/laravel/',
+            '/laravel-adapter/src/',
         ],
         private int $snippetLines = 2,
         private int $maxBacktrace = 30,

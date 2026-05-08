@@ -41,7 +41,7 @@ See `SCOPE.md` for the full list of what is and isn't in v1.
 
 A developer:
 
-1. `brew install thamibn/php-periscope/php-periscope`
+1. `brew install periscopephp/php-periscope/php-periscope`
 2. Opens VSCode in their Laravel project
 3. Sets a breakpoint
 4. Hits the route in their browser

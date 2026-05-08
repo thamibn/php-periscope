@@ -23,9 +23,15 @@ impl Trace {
         let bytes = std::fs::read(&path)
             .with_context(|| format!("opening {}", path.display()))?;
 
+        // Real-world traces from non-trivial PHP scripts (Pest test runs,
+        // Laravel requests with many frames) easily blow past capnp's default
+        // 8 MiB traversal cap. Bump to 4 GiB — a single trace file is bounded
+        // by retention policy on the writer side, not by the reader's limit.
         let mut slice: &[u8] = &bytes;
+        let mut opts = capnp::message::ReaderOptions::new();
+        opts.traversal_limit_in_words(Some(512 * 1024 * 1024));
         let message =
-            serialize::read_message(&mut slice, capnp::message::ReaderOptions::new())
+            serialize::read_message(&mut slice, opts)
                 .with_context(|| format!("parsing capnp from {}", path.display()))?;
 
         Ok(Self { path, message })

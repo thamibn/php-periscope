@@ -350,11 +350,10 @@ extern "C" const char *periscope_trace_close(
             auto generic = e.getPayload().initGenericJson();
             generic.setType(row.typeTag);
             generic.setPayloadJson(row.payloadJson);
-            // v1: keep call site as JSON in the generic payload itself; the
-            // CallSite struct is reserved for phase 6+ when we promote events
-            // to typed variants. The Laravel adapter merges call_site into
-            // payload_json, so no separate write is needed here.
-            (void)row.callSiteJson;
+            // v1: call site is stored alongside the JSON payload as raw JSON;
+            // Phase 6+ will promote it into the typed CallSite struct. The
+            // dumper / daemon parse this lazily.
+            generic.setCallSiteJson(row.callSiteJson);
         }
     }
 

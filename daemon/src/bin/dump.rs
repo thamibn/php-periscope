@@ -36,6 +36,33 @@ struct Args {
 struct TraceJson {
     meta: MetaJson,
     frames: Vec<FrameJson>,
+    observability_events: Vec<EventJson>,
+}
+
+#[derive(Serialize)]
+struct EventJson {
+    id: u32,
+    at_micros: u64,
+    in_frame_id: u32,
+    #[serde(rename = "type")]
+    type_tag: String,
+    payload: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_call_site: Option<CallSiteJson>,
+}
+
+#[derive(Serialize)]
+struct CallSiteJson {
+    file: String,
+    line: u32,
+    snippet: Vec<SnippetLineJson>,
+    frame_stack: Vec<u32>,
+}
+
+#[derive(Serialize)]
+struct SnippetLineJson {
+    number: u32,
+    source: String,
 }
 
 #[derive(Serialize)]
@@ -76,12 +103,96 @@ fn opaque_or_empty(v: trace_capnp::value::Reader<'_>) -> Option<String> {
     }
 }
 
+/// Pull `(type, payload)` out of an ObservabilityEvent. v1 emits everything
+/// as the `genericJson` variant — Phase 6 will switch to typed variants and
+/// this fn will need extending. Until then, anything other than genericJson
+/// surfaces as `{"type":"<unhandled>","payload":null}` so the caller can see
+/// it but doesn't crash.
+fn decode_event_payload(
+    e: trace_capnp::observability_event::Reader<'_>,
+) -> Result<(String, serde_json::Value)> {
+    use trace_capnp::observability_event::payload::Which;
+
+    match e.get_payload().which() {
+        Ok(Which::GenericJson(reader)) => {
+            let r = reader?;
+            let tag = read_text(r.get_type()?);
+            let raw = read_text(r.get_payload_json()?);
+            let payload: serde_json::Value =
+                serde_json::from_str(&raw).unwrap_or(serde_json::Value::String(raw));
+            Ok((tag, payload))
+        }
+        Ok(Which::SqlQuery(_)) => Ok(("sql".to_string(), serde_json::Value::Null)),
+        Ok(Which::LogLine(_)) => Ok(("log".to_string(), serde_json::Value::Null)),
+        Ok(Which::CacheOp(_)) => Ok(("cache".to_string(), serde_json::Value::Null)),
+        Ok(Which::HttpCall(_)) => Ok(("http".to_string(), serde_json::Value::Null)),
+        Ok(Which::RedisOp(_)) => Ok(("redis".to_string(), serde_json::Value::Null)),
+        Ok(Which::EventDispatched(_)) => Ok(("event".to_string(), serde_json::Value::Null)),
+        Ok(Which::JobDispatched(_)) => Ok(("job".to_string(), serde_json::Value::Null)),
+        Ok(Which::MailSent(_)) => Ok(("mail".to_string(), serde_json::Value::Null)),
+        Ok(Which::NPlusOne(_)) => Ok(("n_plus_one".to_string(), serde_json::Value::Null)),
+        Ok(Which::RequestResolved(_)) => Ok(("request_resolved".to_string(), serde_json::Value::Null)),
+        Err(_) => Ok(("<unknown>".to_string(), serde_json::Value::Null)),
+    }
+}
+
+fn decode_call_site(
+    e: trace_capnp::observability_event::Reader<'_>,
+) -> Result<Option<CallSiteJson>> {
+    // v1: call site is stored as raw JSON inside the GenericJsonEvent variant
+    // (the userCallSite Cap'n Proto struct is reserved for Phase 6+ typed
+    // variants). Parse it here on read.
+    use trace_capnp::observability_event::payload::Which;
+    if let Ok(Which::GenericJson(reader)) = e.get_payload().which() {
+        let raw = read_text(reader?.get_call_site_json()?);
+        if raw.is_empty() {
+            return Ok(None);
+        }
+        let v: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
+        let obj = match v.as_object() {
+            Some(o) => o,
+            None => return Ok(None),
+        };
+        let file = obj.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if file.is_empty() {
+            return Ok(None);
+        }
+        let line = obj.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let snippet: Vec<SnippetLineJson> = obj
+            .get("snippet")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| {
+                        let o = s.as_object()?;
+                        Some(SnippetLineJson {
+                            number: o.get("number").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            source: o.get("source").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let frame_stack: Vec<u32> = obj
+            .get("frame_stack")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|n| n.as_u64().map(|x| x as u32)).collect())
+            .unwrap_or_default();
+        return Ok(Some(CallSiteJson { file, line, snippet, frame_stack }));
+    }
+    Ok(None)
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let trace = Trace::open(&args.trace)?;
     let root = trace.root()?;
     let meta = root.get_meta()?;
     let frames = root.get_frames()?;
+    let events = root.get_observability_events()?;
 
     let total = frames.len() as usize;
     let limit = if args.limit == 0 || args.limit > total {
@@ -120,6 +231,21 @@ fn main() -> Result<()> {
             })
             .collect::<Result<_>>()?;
 
+        let events_json: Vec<EventJson> = events
+            .iter()
+            .map(|e| -> Result<EventJson> {
+                let (type_tag, payload) = decode_event_payload(e)?;
+                Ok(EventJson {
+                    id: e.get_id(),
+                    at_micros: e.get_at_micros(),
+                    in_frame_id: e.get_in_frame_id(),
+                    type_tag,
+                    payload,
+                    user_call_site: decode_call_site(e)?,
+                })
+            })
+            .collect::<Result<_>>()?;
+
         let out = TraceJson {
             meta: MetaJson {
                 php_version: read_text(meta.get_php_version()?),
@@ -132,6 +258,7 @@ fn main() -> Result<()> {
                 duration_micros: meta.get_duration_micros(),
             },
             frames: frames_json,
+            observability_events: events_json,
         };
         println!("{}", serde_json::to_string_pretty(&out)?);
         return Ok(());
@@ -183,5 +310,33 @@ fn main() -> Result<()> {
             }
         }
     }
+
+    println!();
+    println!("observability events ({} total):", events.len());
+    for e in events.iter() {
+        let (tag, payload) = decode_event_payload(e)?;
+        let cs = decode_call_site(e)?;
+        let cs_str = match &cs {
+            Some(c) if !c.file.is_empty() => format!("  ({}:{})", c.file, c.line),
+            _ => String::new(),
+        };
+        let payload_preview = match &payload {
+            serde_json::Value::Null => String::new(),
+            v => {
+                let s = v.to_string();
+                if s.len() > 120 { format!("  {}…", &s[..117]) } else { format!("  {}", s) }
+            }
+        };
+        println!(
+            "  #{:<4} @{:>10}us  frame=#{:<4}  {}{}{}",
+            e.get_id(),
+            e.get_at_micros(),
+            e.get_in_frame_id(),
+            tag,
+            cs_str,
+            payload_preview,
+        );
+    }
+
     Ok(())
 }

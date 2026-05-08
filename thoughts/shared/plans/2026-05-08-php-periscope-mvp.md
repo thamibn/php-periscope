@@ -6,7 +6,7 @@
 **Status:** v1 in progress — Phases 1–4 landed, Phase 5 next
 **Tagline:** *See into your Laravel request — your AI co-pilot does too.*
 
-**v1 audience scope:** Laravel only. The C extension is framework-agnostic by design (correct engineering for a Zend Observer hook), but we test, market, and support **only** Laravel in v1. Other frameworks ship as separate Composer packages after v1 (`thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`) once Laravel adoption proves the model. v1 narrowness is a deliberate scope cut.
+**v1 audience scope:** Laravel only. The C extension is framework-agnostic by design (correct engineering for a Zend Observer hook), but we test, market, and support **only** Laravel in v1. Other frameworks ship as separate Composer packages after v1 (`periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`) once Laravel adoption proves the model. v1 narrowness is a deliberate scope cut.
 
 ## Cross-cutting requirements (added during implementation)
 
@@ -24,7 +24,7 @@ Listed here so the full set is visible at a glance.
 
 5. **Adaptive UI** — only render panels that have non-zero events in the current trace. Out of the box on Laravel: Source / Variables / Stack / Timeline / Queries / Logs / Jobs / Events / Cache / Redis / HTTP / Mail panels all light up. (Phase 9.)
 
-6. **Laravel-only in v1; other frameworks as separate packages later** — C extension is framework-agnostic internally (correct engineering, allows cheap v1.1+ growth), but v1 ships ONLY `thamibn/periscope-laravel`. We do not test, market, or support Symfony/WordPress/CodeIgniter/plain PHP in v1. Future packages: `thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter` — each follows the same pattern (Composer package, framework auto-discovery, forwards events to the same C extension).
+6. **Laravel-only in v1; other frameworks as separate packages later** — C extension is framework-agnostic internally (correct engineering, allows cheap v1.1+ growth), but v1 ships ONLY `periscopephp/laravel`. We do not test, market, or support Symfony/WordPress/CodeIgniter/plain PHP in v1. Future packages: `periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter` — each follows the same pattern (Composer package, framework auto-discovery, forwards events to the same C extension).
 
 7. **No end-user toolchain** — distribution ships precompiled bottles via brew/PECL. End users never need Rust, C++, capnp, or a compiler. Maintainers + CI handle the build. (Phase 11.)
 
@@ -78,7 +78,7 @@ After MVP ship (~3–4 months part-time / 6–8 weeks full-time AI-assisted):
 
 **A developer can:**
 
-1. `brew install thamibn/php-periscope/php-periscope` (or run a one-line install script).
+1. `brew install periscopephp/php-periscope/php-periscope` (or run a one-line install script).
 2. Open VSCode in a Laravel project, install the `php-periscope` extension from the marketplace.
 3. Set a breakpoint by clicking a gutter line.
 4. Hit the route in their browser.
@@ -118,7 +118,7 @@ Explicitly out of scope for the MVP. Each is a deliberate cut to keep the projec
 - **Async runtimes** — Fibers, Swoole, ReactPHP, Frankenphp, Octane. Single-request-thread model only.
 - **PhpStorm-specific features** — PhpStorm supports DAP via plugin but its UX is rougher; VSCode is the priority.
 - **OpenTelemetry export** — debug events as spans. Deferred.
-- **Other PHP frameworks** — Symfony, WordPress, CodeIgniter, plain PHP. Out of v1 scope entirely. Each ships as its own Composer package after v1 (`thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`) once Laravel adoption proves the model.
+- **Other PHP frameworks** — Symfony, WordPress, CodeIgniter, plain PHP. Out of v1 scope entirely. Each ships as its own Composer package after v1 (`periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`) once Laravel adoption proves the model.
 - **Mobile / cloud UI** — local browser UI only.
 - **Authentication / multi-user** — `localhost:9999` is single-user, no auth.
 - **Custom non-DAP protocol** — DAP is the only IDE protocol in v1 (custom protocol deferred to v2 if/when needed for time-travel features DAP can't express well).
@@ -425,7 +425,7 @@ Use `capnp` crate. mmap the trace file. Provide a `Trace::open(path)` API that r
 
 ## Phase 5 watcher coverage — full Telescope parity
 
-v1 ships **all 18 Laravel Telescope watchers** in the `thamibn/periscope-laravel` adapter. Source of truth: https://laravel.com/docs/13.x/telescope. Each watcher is one Hook class in `laravel-adapter/src/Hooks/`, all forward to the C extension via `periscope_record_event()`.
+v1 ships **all 18 Laravel Telescope watchers** in the `periscopephp/laravel` adapter. Source of truth: https://laravel.com/docs/13.x/telescope. Each watcher is one Hook class in `laravel-adapter/src/Hooks/`, all forward to the C extension via `periscope_record_event()`.
 
 | # | Watcher | What it captures | Laravel event/hook |
 |---|---------|------------------|---------------------|
@@ -545,7 +545,7 @@ A Composer-installable Laravel package that registers framework hooks (DB::liste
 - `laravel-adapter/src/Hooks/HttpHook.php`
 - `laravel-adapter/src/Bridge/ExtensionBridge.php` — calls `periscope_record_event()` (FFI to C extension)
 
-Package name: `thamibn/periscope-laravel`. Auto-discovered service provider so it activates automatically when present.
+Package name: `periscopephp/laravel`. Auto-discovered service provider so it activates automatically when present.
 
 #### 2. C extension FFI
 
@@ -585,7 +585,7 @@ Naive in-process detector: if the same SQL pattern (with bindings normalized) ru
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] `composer require thamibn/periscope-laravel` works in a fresh `laravel new` project
+- [ ] `composer require periscopephp/laravel` works in a fresh `laravel new` project
 - [ ] Service provider auto-discovery test: ` php artisan about | grep periscope` shows the package as registered
 - [ ] Pest tests in `laravel-adapter/tests/` cover each hook firing and event being recorded (use a stub `ExtensionBridge` for unit tests)
 - [ ] N+1 detector test: a known N+1 query pattern produces a warning event in the trace
@@ -911,7 +911,7 @@ Standard PECL extension package so users can `pecl install periscope` if they pr
 #### 2. Homebrew tap
 
 **Files**:
-- A separate repo `thamibn/homebrew-php-periscope`
+- A separate repo `periscopephp/homebrew-php-periscope`
 - `Formula/php-periscope.rb` — formula that builds the extension for each installed brew PHP, drops the daemon binary in `/opt/homebrew/bin/`
 - `Formula/php-periscope.rb` runs `pecl install` per PHP version found via `brew list | grep '^php'`
 
@@ -943,7 +943,7 @@ Standard VSCode extension that:
 - Gutter icons for breakpoints
 - Status bar item showing connection state
 
-Publish to the VSCode Marketplace as `thamibn.php-periscope`.
+Publish to the VSCode Marketplace as `periscopephp.php-periscope`.
 
 #### 5. Uninstall
 
@@ -954,9 +954,9 @@ Reverses all the install steps. Important — segfault-prone tools must be easy 
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] `brew install thamibn/php-periscope/php-periscope` works in a fresh CI VM
+- [ ] `brew install periscopephp/php-periscope/php-periscope` works in a fresh CI VM
 - [ ] `bash scripts/install.sh` works on a fresh Ubuntu 22.04 + PHP 8.3 image and a fresh macOS image
-- [ ] `code --install-extension thamibn.php-periscope` succeeds on Linux + macOS
+- [ ] `code --install-extension periscopephp.php-periscope` succeeds on Linux + macOS
 - [ ] `bash scripts/uninstall.sh` removes everything cleanly (verify with diff before/after)
 
 #### Manual Verification:
@@ -1197,13 +1197,13 @@ This appendix consolidates everything from the project's persistent memory (`/.c
 
 ### A.1 — Laravel-only in v1, with the architecture set up for future framework packages
 
-**Rule (v1):** ship `thamibn/periscope-laravel` and nothing else. Test, market, and support **only** Laravel. Don't pursue Symfony / WordPress / CodeIgniter / plain PHP in v1.
+**Rule (v1):** ship `periscopephp/laravel` and nothing else. Test, market, and support **only** Laravel. Don't pursue Symfony / WordPress / CodeIgniter / plain PHP in v1.
 
 **Architectural rule (timeless):** the C extension stays framework-agnostic — no Laravel-specific code at the engine layer (CLAUDE.md invariant #8). Framework-specific hooks live in Composer adapter packages. This is correct engineering regardless of how many frameworks we ultimately support.
 
 **Why this combination:**
 - Scope discipline — v1 ships something coherent and excellent, not three half-finished adapters.
-- Architecture stays clean — when we eventually add `thamibn/periscope-symfony` etc., zero rework on the extension or daemon.
+- Architecture stays clean — when we eventually add `periscopephp/symfony` etc., zero rework on the extension or daemon.
 - Laravel community is concentrated and targetable (Laravel News, Laracasts, Discord, Twitter); seeding v1 is tractable.
 
 **Layers:**
@@ -1213,9 +1213,9 @@ This appendix consolidates everything from the project's persistent memory (`/.c
 - Layer 3 — **Daemon + UI**: render whatever events arrive in the trace; oblivious to which adapter produced them.
 
 **Future packages (post-v1, separate repos / Composer packages, same architecture):**
-- `thamibn/periscope-symfony` — hooks Symfony Profiler events
-- `thamibn/periscope-wordpress` — hooks `pre_get_posts`, `$wpdb`, the HTTP API, REST API
-- `thamibn/periscope-codeigniter` — hooks CI4 events, Query Builder, validation, sessions
+- `periscopephp/symfony` — hooks Symfony Profiler events
+- `periscopephp/wordpress` — hooks `pre_get_posts`, `$wpdb`, the HTTP API, REST API
+- `periscopephp/codeigniter` — hooks CI4 events, Query Builder, validation, sessions
 
 Timing depends on community demand; not committed for v1.
 
@@ -1378,7 +1378,7 @@ struct ObservabilityEvent {
 ## References
 
 - This conversation: chat history with the user on 2026-05-08 about why Xdebug is hard to set up and what a modern alternative would look like
-- Project repo: https://github.com/thamibn/php-periscope
+- Project repo: https://github.com/periscopephp/php-periscope
 - Project docs (in this repo):
   - `docs/VISION.md` — the elevator pitch
   - `docs/SCOPE.md` — what's in / what's out for v1

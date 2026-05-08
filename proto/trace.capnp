@@ -222,6 +222,7 @@ struct ObservabilityEvent {
 struct GenericJsonEvent {
   type                   @0 :Text;       # "sql", "log", "cache", "http", ...
   payloadJson            @1 :Text;       # arbitrary JSON shape — see laravel-adapter/docs/EVENT_PAYLOADS.md
+  callSiteJson           @2 :Text;       # JSON {file, line, snippet, frame_stack} — empty when adapter couldn't resolve a user-code frame
 }
 
 struct CallSite {

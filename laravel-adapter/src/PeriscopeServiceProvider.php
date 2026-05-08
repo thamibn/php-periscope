@@ -41,7 +41,7 @@ use Periscope\Laravel\Support\CallSiteResolver;
  * Boot point for the Laravel adapter.
  *
  * Auto-discovered via composer.json's `extra.laravel.providers`, so a
- * fresh `composer require thamibn/periscope-laravel` is the only setup
+ * fresh `composer require periscopephp/laravel` is the only setup
  * step. All runtime knobs live in .env (see config/periscope.php).
  */
 final class PeriscopeServiceProvider extends ServiceProvider
@@ -126,6 +126,7 @@ final class PeriscopeServiceProvider extends ServiceProvider
                 db:           $this->app->make(DatabaseManager::class),
                 nPlusOne:     $this->app->make(NPlusOneDetector::class),
                 slowAnalyzer: $this->app->make(SlowQueryAnalyzer::class),
+                aiAdvisor:    $this->app->make(AiAdvisor::class),
                 slowQueryMs:  (int) $config->get('periscope.slow_query_ms', 100),
             );
         }

@@ -69,13 +69,13 @@ End users will install precompiled binaries — **no Rust, C++, or C toolchain r
 
 ```bash
 # macOS (planned, Phase 11)
-brew install thamibn/php-periscope/php-periscope
+brew install periscopephp/php-periscope/php-periscope
 
 # Linux (planned, Phase 11)
 curl -fsSL https://periscope.dev/install.sh | bash
 
 # Per-project
-composer require thamibn/periscope-laravel
+composer require periscopephp/laravel
 ```
 
 The build chain (`make extension`, `cargo build`, `capnp compile`) only runs for maintainers building releases. Users get bottles.

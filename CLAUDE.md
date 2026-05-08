@@ -4,7 +4,7 @@ Guidance for Claude Code working in the php-periscope repository.
 
 ## Project Overview
 
-**php-periscope** is a live observability + time-travel debugger **built for Laravel** (v1 ships Laravel-only — see plan §A.1). It pauses any Laravel request, shows the developer every variable, SQL query, log line, dispatched job, fired event, cache hit, Redis command, and outbound HTTP call that occurred up to the paused line — and lets them scrub backward in time. The C extension is framework-agnostic by design so future packages (`thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`) can ship post-v1, but in v1 we test, market, and support **only** Laravel.
+**php-periscope** is a live observability + time-travel debugger **built for Laravel** (v1 ships Laravel-only — see plan §A.1). It pauses any Laravel request, shows the developer every variable, SQL query, log line, dispatched job, fired event, cache hit, Redis command, and outbound HTTP call that occurred up to the paused line — and lets them scrub backward in time. The C extension is framework-agnostic by design so future packages (`periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`) can ship post-v1, but in v1 we test, market, and support **only** Laravel.
 
 This is a greenfield project. The full plan lives at `thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`. Always read that plan before starting any implementation work.
 
@@ -66,7 +66,7 @@ make ci
 ## Critical Invariants
 
 1. **AddressSanitizer must stay green.** Every CI run builds the C extension with `-fsanitize=address` on Linux. A red ASan job blocks merge.
-2. **No `unsafe` in the Rust daemon.** Enforced by `#![forbid(unsafe_code)]` at crate root.
+2. **No `unsafe` in the Rust daemon, with one documented exception.** Enforced by `#![forbid(unsafe_code)]` at crate root. The single allowed exception is the trace mmap reader (Phase 7) — it requires `unsafe` because the OS can change a mapped file out-of-band; we make a written `# Safety` promise that trace files are append-only-at-write / read-only-thereafter and back it with tests. The relaxation lives in *one* function, gated by `#[allow(unsafe_code)]` with a doc comment, not a global lift.
 3. **Observer API only, no DBGp.** We use Zend Observer API (PHP 8.0+) and DAP. Do not add DBGp protocol code.
 4. **Cap'n Proto, not Protobuf**, for the trace format. Decision recorded in `docs/ARCHITECTURE.md`.
 5. **Function-boundary recording, not opcode-level.** v1 captures variables only at function entry/exit. Do not add per-opcode hooks.

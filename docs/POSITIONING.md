@@ -4,7 +4,7 @@ This is the messaging foundation for the README, the docs site, the launch blog 
 
 **v1 audience: Laravel developers.** We don't market, test, or support Symfony / WordPress / CodeIgniter / plain PHP in v1. That's a deliberate scope cut, not an oversight.
 
-The underlying C extension happens to be framework-agnostic (that's correct engineering for a Zend Observer hook). **Other frameworks ship later, as separate Composer packages**: `thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`, etc. Each will follow the same pattern as the Laravel adapter — auto-discover on its host framework, hook the right events, forward to the same C extension. v1 ships only `thamibn/periscope-laravel`; the rest land in v1.1, v1.2, … as the community signals demand.
+The underlying C extension happens to be framework-agnostic (that's correct engineering for a Zend Observer hook). **Other frameworks ship later, as separate Composer packages**: `periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`, etc. Each will follow the same pattern as the Laravel adapter — auto-discover on its host framework, hook the right events, forward to the same C extension. v1 ships only `periscopephp/laravel`; the rest land in v1.1, v1.2, … as the community signals demand.
 
 ---
 
@@ -121,7 +121,7 @@ The differentiation is the **combination**: paused + observability + timeline. T
 
 ## What v1 ships (Laravel-only)
 
-The Laravel adapter (`thamibn/periscope-laravel`) hooks every Laravel observability event and forwards it to the trace:
+The Laravel adapter (`periscopephp/laravel`) hooks every Laravel observability event and forwards it to the trace:
 
 - Every Eloquent / DB query with bindings, connection, and timing
 - Every `Log::info/warn/error` line with channel and context
@@ -148,9 +148,9 @@ Plus everything from the C extension (which works on any PHP code, but in v1 we 
 
 Symfony, WordPress, CodeIgniter, plain PHP — each gets its own Composer package after v1. Same pattern as the Laravel adapter, same C extension underneath, same UI:
 
-- `thamibn/periscope-symfony` — hooks the Symfony Profiler events (Doctrine queries, mailer, security, messenger).
-- `thamibn/periscope-wordpress` — hooks `pre_get_posts`, `wp_loaded`, `$wpdb` queries, the HTTP API, REST API endpoints.
-- `thamibn/periscope-codeigniter` — hooks CI4's events, Query Builder, validation, sessions.
+- `periscopephp/symfony` — hooks the Symfony Profiler events (Doctrine queries, mailer, security, messenger).
+- `periscopephp/wordpress` — hooks `pre_get_posts`, `wp_loaded`, `$wpdb` queries, the HTTP API, REST API endpoints.
+- `periscopephp/codeigniter` — hooks CI4's events, Query Builder, validation, sessions.
 
 Timing on those depends on community demand. v1 stays focused on Laravel so we ship something coherent rather than spreading thin.
 

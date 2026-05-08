@@ -1,5 +1,5 @@
 {
-    "name": "thamibn/periscope-laravel",
+    "name": "periscopephp/laravel",
     "description": "Laravel adapter for php-periscope — wires Telescope-tier observability events into the periscope C extension's trace.",
     "type": "library",
     "license": "proprietary",
