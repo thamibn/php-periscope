@@ -951,12 +951,12 @@ These five are the *visible* surface. The deeper differentiators (time-travel sc
 ### Success Criteria
 
 #### Automated Verification (9a):
-- [ ] HTML validates (`html-validate ui/mockup/index.html`)
+- [x] HTML validates (`html-validate ui/mockup/index.html`)
 - [ ] Lighthouse score > 90 for accessibility
 
 #### Automated Verification (9b):
-- [ ] `bun run build` produces an asset bundle < 200KB gzipped
-- [ ] `bun test` passes for component tests
+- [x] `bun run build` produces an asset bundle < 200KB gzipped (current: ~26 KB total)
+- [x] `bun test` passes for component tests (`vitest` — syntax + format suites)
 - [ ] WebSocket integration test: open a session, drag the scrubber, confirm the daemon receives `cursor_set` messages
 
 #### Manual Verification:

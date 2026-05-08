@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>periscope — User::show #1247</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style type="text/tailwindcss">
+      @theme {
+        --font-sans: 'Inter', ui-sans-serif, system-ui;
+        --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+        --color-ink-950: #07090d;
+        --color-ink-900: #0b0f15;
+        --color-ink-800: #11161f;
+        --color-ink-700: #1a2230;
+        --color-ink-600: #232d3f;
+        --color-ink-500: #344056;
+        --color-ink-400: #5b6577;
+        --color-ink-300: #8b95a7;
+        --color-ink-200: #c5cbd6;
+        --color-ink-100: #e7eaf0;
+        --color-accent: #5b9dff;
+        --color-accent-soft: #1f3a66;
+        --color-success: #4ade80;
+        --color-warn: #f5b14a;
+        --color-danger: #f87171;
+        --color-purple: #b48bff;
+        --color-pink: #f59ad6;
+      }
+      html, body { height: 100%; }
+      body {
+        background:
+          radial-gradient(1200px 600px at 70% -100px, rgba(91,157,255,0.08), transparent 60%),
+          radial-gradient(900px 500px at -10% 110%, rgba(180,139,255,0.05), transparent 60%),
+          var(--color-ink-950);
+        color: var(--color-ink-100);
+        font-family: var(--font-sans);
+      }
+      .mono { font-family: var(--font-mono); }
+      .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+      .scroll-thin::-webkit-scrollbar-thumb { background: #232d3f; border-radius: 4px; }
+      .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+      .pill { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset; }
+      .row-hover { @apply transition-colors hover:bg-ink-800/70; }
+      .panel { @apply rounded-lg border border-ink-700/70 bg-ink-900/60 backdrop-blur-sm; }
+      .panel-header { @apply flex items-center justify-between border-b border-ink-700/60 px-3 py-2 text-xs uppercase tracking-wider text-ink-300; }
+      .tab { @apply flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-ink-300 hover:text-ink-100 hover:bg-ink-800/70 cursor-pointer; }
+      .tab-active { @apply bg-ink-800 text-ink-100 ring-1 ring-inset ring-ink-700; }
+      .chip { @apply inline-flex items-center gap-2 rounded-md border border-ink-700 bg-ink-900/80 px-2.5 py-1 text-xs text-ink-200; }
+
+      /* "codiga"-style code snippet — dark, gutter w/ line numbers, current line highlight */
+      .code-pre {
+        background: linear-gradient(180deg, #0b1220 0%, #0a0f1a 100%);
+        border: 1px solid #1a2230;
+        border-radius: 0.6rem;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.55;
+        overflow: hidden;
+        position: relative;
+      }
+      .code-pre .code-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: .45rem .75rem; border-bottom: 1px solid #1a2230;
+        background: #0a121f; color: #8b95a7; font-size: 11.5px;
+      }
+      .code-pre .code-bar .dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
+      .code-row {
+        display: grid;
+        grid-template-columns: 3.25rem 1fr;
+        align-items: stretch;
+      }
+      .code-row .ln {
+        text-align: right;
+        padding: 0 .75rem;
+        color: #4b5870;
+        user-select: none;
+        border-right: 1px solid #131c2c;
+        background: #0a1322;
+      }
+      .code-row .src {
+        padding: 0 1rem;
+        white-space: pre;
+        color: #d1d6e2;
+      }
+      .code-row.is-current .ln {
+        background: #1a2942;
+        color: #cfd8e8;
+      }
+      .code-row.is-current .src {
+        background: linear-gradient(90deg, rgba(91,157,255,0.12), rgba(91,157,255,0.04));
+        box-shadow: inset 3px 0 0 0 #5b9dff;
+      }
+      .code-row.is-bp .ln::before {
+        content: '●';
+        color: #f87171;
+        margin-right: .35rem;
+      }
+      .tok-kw { color: #b48bff; }
+      .tok-fn { color: #5b9dff; }
+      .tok-str { color: #f59ad6; }
+      .tok-num { color: #4ade80; }
+      .tok-cmt { color: #5b6577; font-style: italic; }
+      .tok-var { color: #ffd690; }
+      .tok-cls { color: #7dd3fc; }
+      .tok-op  { color: #c5cbd6; }
+      .tok-pn  { color: #8b95a7; }
+
+      /* timeline */
+      .timeline-track { background: linear-gradient(180deg, #0a121f 0%, #060a13 100%); }
+      .timeline-event { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 2px; height: 14px; border-radius: 1px; }
+      .timeline-event.sql { background: #5b9dff; }
+      .timeline-event.log { background: #c5cbd6; }
+      .timeline-event.cache { background: #4ade80; }
+      .timeline-event.http { background: #f5b14a; }
+      .timeline-event.exception { background: #f87171; height: 24px; width: 3px; }
+      .timeline-event.event { background: #b48bff; }
+      .timeline-event.job { background: #f59ad6; }
+      .timeline-cursor { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #fff; box-shadow: 0 0 12px rgba(255,255,255,0.45); }
+    </style>
+  </head>
+  <body class="min-h-screen text-ink-100 antialiased">
+    <!-- Top bar -->
+    <header class="sticky top-0 z-30 border-b border-ink-700/60 bg-ink-950/80 backdrop-blur">
+      <div class="flex items-center gap-3 px-4 py-2.5">
+        <div class="flex items-center gap-2">
+          <div class="grid place-items-center w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple text-ink-950 font-bold">P</div>
+          <div class="leading-tight">
+            <div class="text-sm font-semibold">periscope</div>
+            <div class="text-[10.5px] text-ink-400 mono">v0.1.0-dev · localhost:9999</div>
+          </div>
+        </div>
+        <div class="h-6 w-px bg-ink-700 mx-2"></div>
+
+        <div class="flex items-center gap-2 mono text-[12.5px]">
+          <span class="pill bg-emerald-500/10 text-emerald-300 ring-emerald-500/30">200 OK</span>
+          <span class="pill bg-ink-800 text-ink-200 ring-ink-700">GET</span>
+          <span class="text-ink-100">/api/users/1247</span>
+          <span class="text-ink-400">·</span>
+          <span class="text-ink-300">app.test</span>
+        </div>
+        <div class="ml-auto flex items-center gap-2">
+          <span class="chip"><span class="text-ink-400">duration</span><span class="text-ink-100">412 ms</span></span>
+          <span class="chip"><span class="text-ink-400">queries</span><span class="text-warn">37</span></span>
+          <span class="chip"><span class="text-ink-400">mem</span><span class="text-ink-100">18.4 MB</span></span>
+          <span class="chip"><span class="text-ink-400">php</span><span class="text-ink-100">8.3.10</span></span>
+          <button class="chip hover:border-accent hover:text-accent">Rerun</button>
+          <button class="chip hover:border-accent hover:text-accent">Export ▾</button>
+          <button class="chip hover:border-accent hover:text-accent">Share</button>
+        </div>
+      </div>
+      <!-- Tabs -->
+      <nav class="flex items-center gap-1 px-3 pb-2 overflow-x-auto scroll-thin">
+        <span class="tab tab-active">Overview <span class="text-[10px] text-ink-400">·</span></span>
+        <span class="tab">Source / Scope</span>
+        <span class="tab">Queries <span class="ml-1 text-[10px] text-warn">37</span></span>
+        <span class="tab">Models <span class="ml-1 text-[10px] text-ink-400">12</span></span>
+        <span class="tab">Logs <span class="ml-1 text-[10px] text-ink-400">8</span></span>
+        <span class="tab">Cache <span class="ml-1 text-[10px] text-ink-400">14</span></span>
+        <span class="tab">Jobs <span class="ml-1 text-[10px] text-ink-400">2</span></span>
+        <span class="tab">Events <span class="ml-1 text-[10px] text-ink-400">5</span></span>
+        <span class="tab">HTTP <span class="ml-1 text-[10px] text-ink-400">3</span></span>
+        <span class="tab">Redis <span class="ml-1 text-[10px] text-ink-400">9</span></span>
+        <span class="tab">Mail <span class="ml-1 text-[10px] text-ink-400">1</span></span>
+        <span class="tab">Notifications</span>
+        <span class="tab">Exceptions <span class="ml-1 text-[10px] text-danger">1</span></span>
+        <span class="tab">Insights <span class="ml-1 text-[10px] text-warn">3</span></span>
+        <span class="tab">Performance</span>
+        <span class="tab">Request</span>
+        <span class="tab">Response</span>
+      </nav>
+    </header>
+
+    <!-- Body grid -->
+    <main class="grid grid-cols-[260px_minmax(0,1fr)_360px] gap-4 px-4 py-4">
+      <!-- Sidebar: traces + storage -->
+      <aside class="space-y-3">
+        <section class="panel">
+          <div class="panel-header">
+            <span>Traces</span>
+            <button class="text-ink-400 hover:text-ink-100">⌕</button>
+          </div>
+          <ul class="divide-y divide-ink-700/60">
+            <li class="row-hover bg-ink-800/60 p-2.5 cursor-pointer">
+              <div class="flex items-center justify-between text-[12px]">
+                <span class="mono text-ink-100">GET /api/users/1247</span>
+                <span class="pill bg-emerald-500/10 text-emerald-300 ring-emerald-500/30">200</span>
+              </div>
+              <div class="mt-0.5 text-[11px] text-ink-400 mono">412 ms · 37 sql · just now</div>
+            </li>
+            <li class="row-hover p-2.5 cursor-pointer">
+              <div class="flex items-center justify-between text-[12px]">
+                <span class="mono text-ink-200">POST /api/login</span>
+                <span class="pill bg-emerald-500/10 text-emerald-300 ring-emerald-500/30">204</span>
+              </div>
+              <div class="mt-0.5 text-[11px] text-ink-400 mono">88 ms · 2 sql · 2m ago</div>
+            </li>
+            <li class="row-hover p-2.5 cursor-pointer">
+              <div class="flex items-center justify-between text-[12px]">
+                <span class="mono text-ink-200">GET /dashboard</span>
+                <span class="pill bg-rose-500/10 text-rose-300 ring-rose-500/30">500</span>
+              </div>
+              <div class="mt-0.5 text-[11px] text-ink-400 mono">1.2 s · 84 sql · 4m ago</div>
+            </li>
+            <li class="row-hover p-2.5 cursor-pointer">
+              <div class="flex items-center justify-between text-[12px]">
+                <span class="mono text-ink-200">cli artisan queue:work</span>
+                <span class="pill bg-ink-700 text-ink-200 ring-ink-600">cli</span>
+              </div>
+              <div class="mt-0.5 text-[11px] text-ink-400 mono">2.1 s · 14 sql · 6m ago</div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <span>Storage</span>
+            <span class="mono text-ink-400">/tmp/periscope</span>
+          </div>
+          <div class="p-3 space-y-2 text-xs text-ink-200">
+            <div class="flex justify-between"><span class="text-ink-400">files</span><span class="mono">42</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">size</span><span class="mono">3.7 MB</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">retention</span><span class="mono">100 / 24h</span></div>
+            <div class="flex gap-2 pt-1.5">
+              <button class="chip hover:border-accent hover:text-accent flex-1 justify-center">Open dir</button>
+              <button class="chip hover:border-danger hover:text-danger flex-1 justify-center">Clear all</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header"><span>Filters</span><button class="text-ink-400 hover:text-ink-100">+</button></div>
+          <ul class="p-2 space-y-1 text-[12px]">
+            <li class="row-hover px-2 py-1 rounded mono cursor-pointer text-ink-200">payload.level:error</li>
+            <li class="row-hover px-2 py-1 rounded mono cursor-pointer text-ink-200">payload.time_ms:&gt;100</li>
+            <li class="row-hover px-2 py-1 rounded mono cursor-pointer text-ink-200">type:sql AND payload.connection:pgsql</li>
+          </ul>
+        </section>
+      </aside>
+
+      <!-- Main column: source + insights + queries -->
+      <section class="space-y-4 min-w-0">
+        <!-- Insights cards -->
+        <div class="grid grid-cols-3 gap-3">
+          <article class="panel p-3">
+            <div class="flex items-center justify-between text-xs uppercase tracking-wider text-ink-300">
+              <span class="text-warn">N+1 detected</span>
+              <span class="mono text-ink-400">UserController.php:42</span>
+            </div>
+            <p class="mt-2 text-sm text-ink-100"><span class="mono">SELECT * FROM posts WHERE user_id = ?</span> fired <b class="text-warn">31×</b> in <span class="mono">User::posts</span>.</p>
+            <p class="mt-1 text-xs text-ink-300">Eager-load with <span class="mono text-purple">->with('posts')</span> on the parent query.</p>
+          </article>
+          <article class="panel p-3">
+            <div class="flex items-center justify-between text-xs uppercase tracking-wider text-ink-300">
+              <span class="text-warn">Slow query</span>
+              <span class="mono text-ink-400">312 ms</span>
+            </div>
+            <p class="mt-2 text-sm text-ink-100 mono truncate">SELECT * FROM activity_log WHERE causer_id = ? ORDER BY id DESC</p>
+            <p class="mt-1 text-xs text-ink-300">Missing index on <span class="mono">causer_id</span>. <span class="text-accent">View EXPLAIN →</span></p>
+          </article>
+          <article class="panel p-3">
+            <div class="flex items-center justify-between text-xs uppercase tracking-wider text-ink-300">
+              <span class="text-danger">Exception</span>
+              <span class="mono text-ink-400">caught</span>
+            </div>
+            <p class="mt-2 text-sm text-ink-100 mono">Illuminate\Database\QueryException</p>
+            <p class="mt-1 text-xs text-ink-300">connection refused at <span class="mono">DB.php:128</span> — retried 3×.</p>
+          </article>
+        </div>
+
+        <!-- Source pane (codiga-style) -->
+        <article class="panel">
+          <div class="panel-header">
+            <div class="flex items-center gap-2">
+              <span class="text-ink-100">Source</span>
+              <span class="mono text-ink-400">app/Http/Controllers/UserController.php</span>
+              <span class="text-ink-400">:</span><span class="mono text-accent">42</span>
+            </div>
+            <div class="flex items-center gap-2 text-[11px] text-ink-400">
+              <span class="mono">frame #18</span>
+              <span>·</span>
+              <span class="mono">UserController::show</span>
+            </div>
+          </div>
+          <div class="p-3">
+            <div class="code-pre">
+              <div class="code-bar">
+                <div class="flex items-center gap-1.5"><span class="dot bg-rose-400/70"></span><span class="dot bg-amber-300/70"></span><span class="dot bg-emerald-400/70"></span></div>
+                <div class="mono">UserController.php</div>
+                <div class="mono">PHP · UTF-8</div>
+              </div>
+              <div class="grid">
+                <div class="code-row"><span class="ln">36</span><span class="src"><span class="tok-kw">public function</span> <span class="tok-fn">show</span>(<span class="tok-cls">User</span> <span class="tok-var">$user</span>)<span class="tok-pn">: </span><span class="tok-cls">JsonResponse</span></span></div>
+                <div class="code-row"><span class="ln">37</span><span class="src"><span class="tok-pn">{</span></span></div>
+                <div class="code-row"><span class="ln">38</span><span class="src">    <span class="tok-kw">$this</span><span class="tok-pn">-&gt;</span><span class="tok-fn">authorize</span>(<span class="tok-str">'view'</span>, <span class="tok-var">$user</span>)<span class="tok-pn">;</span></span></div>
+                <div class="code-row"><span class="ln">39</span><span class="src"></span></div>
+                <div class="code-row"><span class="ln">40</span><span class="src">    <span class="tok-cmt">// Hydrate everything the dashboard needs.</span></span></div>
+                <div class="code-row"><span class="ln">41</span><span class="src">    <span class="tok-var">$payload</span> <span class="tok-op">=</span> [</span></div>
+                <div class="code-row is-current is-bp"><span class="ln">42</span><span class="src">        <span class="tok-str">'user'</span> <span class="tok-op">=&gt;</span> <span class="tok-var">$user</span><span class="tok-pn">-&gt;</span><span class="tok-fn">load</span>(<span class="tok-str">'profile'</span>, <span class="tok-str">'roles'</span>)<span class="tok-pn">,</span></span></div>
+                <div class="code-row"><span class="ln">43</span><span class="src">        <span class="tok-str">'posts'</span> <span class="tok-op">=&gt;</span> <span class="tok-var">$user</span><span class="tok-pn">-&gt;</span><span class="tok-fn">posts</span>()<span class="tok-pn">-&gt;</span><span class="tok-fn">latest</span>()<span class="tok-pn">-&gt;</span><span class="tok-fn">take</span>(<span class="tok-num">10</span>)<span class="tok-pn">-&gt;</span><span class="tok-fn">get</span>()<span class="tok-pn">,</span></span></div>
+                <div class="code-row"><span class="ln">44</span><span class="src">        <span class="tok-str">'activity'</span> <span class="tok-op">=&gt;</span> <span class="tok-cls">ActivityLog</span><span class="tok-pn">::</span><span class="tok-fn">forUser</span>(<span class="tok-var">$user</span>)<span class="tok-pn">-&gt;</span><span class="tok-fn">limit</span>(<span class="tok-num">25</span>)<span class="tok-pn">-&gt;</span><span class="tok-fn">get</span>()<span class="tok-pn">,</span></span></div>
+                <div class="code-row"><span class="ln">45</span><span class="src">    ]<span class="tok-pn">;</span></span></div>
+                <div class="code-row"><span class="ln">46</span><span class="src"></span></div>
+                <div class="code-row"><span class="ln">47</span><span class="src">    <span class="tok-kw">return</span> <span class="tok-fn">response</span><span class="tok-pn">-&gt;</span><span class="tok-fn">json</span>(<span class="tok-var">$payload</span>)<span class="tok-pn">;</span></span></div>
+                <div class="code-row"><span class="ln">48</span><span class="src"><span class="tok-pn">}</span></span></div>
+              </div>
+            </div>
+
+            <!-- Stack -->
+            <div class="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <div class="text-[11px] uppercase tracking-wider text-ink-400 mb-1.5">Call stack</div>
+                <ol class="space-y-0.5 text-[12px] mono">
+                  <li class="flex justify-between row-hover px-2 py-1 rounded"><span class="text-ink-100">UserController::show</span><span class="text-ink-400">UserController.php:42</span></li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded"><span class="text-ink-200">Route::dispatch</span><span class="text-ink-400">Router.php:806</span></li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded"><span class="text-ink-200">Pipeline::then</span><span class="text-ink-400">Pipeline.php:128</span></li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded"><span class="text-ink-300">Kernel::handle</span><span class="text-ink-400">Kernel.php:144</span></li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded"><span class="text-ink-300">{main}</span><span class="text-ink-400">public/index.php:55</span></li>
+                </ol>
+              </div>
+              <div>
+                <div class="text-[11px] uppercase tracking-wider text-ink-400 mb-1.5">Scope · frame #18</div>
+                <ul class="space-y-0.5 text-[12px] mono">
+                  <li class="flex justify-between row-hover px-2 py-1 rounded">
+                    <span><span class="text-ink-300">$user</span><span class="text-ink-500">: </span><span class="text-cls">User</span></span>
+                    <span class="text-ink-400">#1247</span>
+                  </li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded">
+                    <span><span class="text-ink-300">$user-&gt;name</span><span class="text-ink-500">: </span><span class="tok-str">"Ada Lovelace"</span></span>
+                    <span class="text-ink-400">string(12)</span>
+                  </li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded">
+                    <span><span class="text-ink-300">$user-&gt;email</span><span class="text-ink-500">: </span><span class="tok-str">"ada@example.com"</span></span>
+                    <span class="text-ink-400">string(15)</span>
+                  </li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded">
+                    <span><span class="text-ink-300">$payload</span><span class="text-ink-500">: </span><span class="text-ink-200">array</span></span>
+                    <span class="text-ink-400">3 keys</span>
+                  </li>
+                  <li class="flex justify-between row-hover px-2 py-1 rounded">
+                    <span><span class="text-ink-300">$this-&gt;authService</span><span class="text-ink-500">: </span><span class="text-cls">AuthService</span></span>
+                    <span class="text-ink-400">#52</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Queries panel -->
+        <article class="panel">
+          <div class="panel-header">
+            <div class="flex items-center gap-2">
+              <span class="text-ink-100">Queries</span>
+              <span class="text-warn mono">37</span>
+              <span class="text-ink-400">·</span>
+              <span class="mono text-ink-300">412 ms total</span>
+            </div>
+            <input class="bg-ink-800 border border-ink-700 text-ink-200 rounded px-2 py-1 text-xs mono w-72 focus:outline-none focus:border-accent" placeholder="filter   payload.connection:pgsql AND time_ms:>50" />
+          </div>
+          <ul class="divide-y divide-ink-700/60 mono text-[12.5px]">
+            <li class="grid grid-cols-[3rem_1fr_5rem_5rem_6rem] items-center gap-3 px-3 py-1.5 row-hover">
+              <span class="text-ink-400 text-right">#1</span>
+              <span class="truncate"><span class="tok-kw">SELECT</span> * <span class="tok-kw">FROM</span> users <span class="tok-kw">WHERE</span> id <span class="tok-op">=</span> <span class="tok-num">1247</span></span>
+              <span class="text-ink-300 text-right">2 ms</span>
+              <span class="text-ink-400 text-right">pgsql</span>
+              <span class="text-ink-400 text-right">UserCtrl:42</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem_5rem_6rem] items-center gap-3 px-3 py-1.5 row-hover">
+              <span class="text-ink-400 text-right">#2</span>
+              <span class="truncate"><span class="tok-kw">SELECT</span> * <span class="tok-kw">FROM</span> profiles <span class="tok-kw">WHERE</span> user_id <span class="tok-op">=</span> <span class="tok-num">1247</span></span>
+              <span class="text-ink-300 text-right">1 ms</span>
+              <span class="text-ink-400 text-right">pgsql</span>
+              <span class="text-ink-400 text-right">User:load</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem_5rem_6rem] items-center gap-3 px-3 py-1.5 row-hover bg-warn/5">
+              <span class="text-warn text-right">×31</span>
+              <span class="truncate text-warn"><span class="tok-kw">SELECT</span> * <span class="tok-kw">FROM</span> posts <span class="tok-kw">WHERE</span> user_id <span class="tok-op">=</span> <span class="tok-num">?</span> <span class="text-ink-400">— grouped (N+1)</span></span>
+              <span class="text-warn text-right">82 ms</span>
+              <span class="text-ink-400 text-right">pgsql</span>
+              <span class="text-ink-400 text-right">User:posts</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem_5rem_6rem] items-center gap-3 px-3 py-1.5 row-hover bg-rose-500/5">
+              <span class="text-danger text-right">#34</span>
+              <span class="truncate"><span class="tok-kw">SELECT</span> * <span class="tok-kw">FROM</span> activity_log <span class="tok-kw">WHERE</span> causer_id <span class="tok-op">=</span> <span class="tok-num">1247</span> <span class="tok-kw">ORDER BY</span> id <span class="tok-kw">DESC</span></span>
+              <span class="text-danger text-right">312 ms</span>
+              <span class="text-ink-400 text-right">pgsql</span>
+              <span class="text-ink-400 text-right">ActivityLog:23</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem_5rem_6rem] items-center gap-3 px-3 py-1.5 row-hover">
+              <span class="text-ink-400 text-right">#35</span>
+              <span class="truncate"><span class="tok-kw">UPDATE</span> users <span class="tok-kw">SET</span> last_seen_at <span class="tok-op">=</span> <span class="tok-str">'2026-05-08 14:02:11'</span> <span class="tok-kw">WHERE</span> id <span class="tok-op">=</span> <span class="tok-num">1247</span></span>
+              <span class="text-ink-300 text-right">3 ms</span>
+              <span class="text-ink-400 text-right">pgsql</span>
+              <span class="text-ink-400 text-right">UserCtrl:51</span>
+            </li>
+          </ul>
+        </article>
+      </section>
+
+      <!-- Right: secondary panels -->
+      <aside class="space-y-4 min-w-0">
+        <article class="panel">
+          <div class="panel-header"><span>Logs</span><span class="mono text-ink-400">8</span></div>
+          <ul class="divide-y divide-ink-700/60 text-[12px]">
+            <li class="grid grid-cols-[3rem_1fr_5rem] gap-2 px-3 py-1.5 row-hover">
+              <span class="pill bg-ink-700 text-ink-200 ring-ink-600">info</span>
+              <span class="mono truncate">User 1247 viewed profile</span>
+              <span class="mono text-ink-400 text-right">+12 ms</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem] gap-2 px-3 py-1.5 row-hover">
+              <span class="pill bg-amber-500/10 text-amber-300 ring-amber-500/30">warn</span>
+              <span class="mono truncate">Slow query: activity_log scan</span>
+              <span class="mono text-ink-400 text-right">+318 ms</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem] gap-2 px-3 py-1.5 row-hover bg-rose-500/5">
+              <span class="pill bg-rose-500/10 text-rose-300 ring-rose-500/30">err</span>
+              <span class="mono truncate">connection refused — retried</span>
+              <span class="mono text-ink-400 text-right">+345 ms</span>
+            </li>
+            <li class="grid grid-cols-[3rem_1fr_5rem] gap-2 px-3 py-1.5 row-hover">
+              <span class="pill bg-ink-700 text-ink-200 ring-ink-600">info</span>
+              <span class="mono truncate">Notification queued</span>
+              <span class="mono text-ink-400 text-right">+402 ms</span>
+            </li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header"><span>Cache</span><span class="mono text-ink-400">14 · 11 hit · 3 miss</span></div>
+          <ul class="divide-y divide-ink-700/60 text-[12px] mono">
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span class="text-emerald-300">HIT</span><span class="text-ink-200 truncate flex-1 mx-2">user:1247:permissions</span><span class="text-ink-400">redis</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span class="text-emerald-300">HIT</span><span class="text-ink-200 truncate flex-1 mx-2">user:1247:profile</span><span class="text-ink-400">redis</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover bg-warn/5"><span class="text-warn">MISS</span><span class="text-ink-200 truncate flex-1 mx-2">activity:1247:recent</span><span class="text-ink-400">redis</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span class="text-emerald-300">PUT</span><span class="text-ink-200 truncate flex-1 mx-2">activity:1247:recent</span><span class="text-ink-400">redis · 5m</span></li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header"><span>HTTP</span><span class="mono text-ink-400">3</span></div>
+          <ul class="divide-y divide-ink-700/60 text-[12px] mono">
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span class="text-ink-200">GET geoip.example.com/v2/lookup</span><span class="text-ink-400">204 · 88 ms</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span class="text-ink-200">POST mail.example.com/send</span><span class="text-ink-400">202 · 41 ms</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover bg-warn/5"><span class="text-warn">GET billing.example.com/charges</span><span class="text-ink-400">timeout</span></li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header"><span>Jobs · Events · Mail</span><span class="mono text-ink-400">8</span></div>
+          <ul class="divide-y divide-ink-700/60 text-[12px] mono">
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span><span class="pill bg-pink/10 text-pink ring-pink/30">job</span> <span class="ml-2">SendWelcomeEmail</span></span><span class="text-ink-400">queue:default</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span><span class="pill bg-purple/10 text-purple ring-purple/30">event</span> <span class="ml-2">UserViewed</span></span><span class="text-ink-400">+88 ms</span></li>
+            <li class="flex justify-between px-3 py-1.5 row-hover"><span><span class="pill bg-accent/10 text-accent ring-accent/30">mail</span> <span class="ml-2">Profile.viewed</span></span><span class="text-ink-400">to ada@</span></li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header"><span>Request</span><span class="mono text-ink-400">12 headers</span></div>
+          <dl class="px-3 py-2 text-[12px] mono space-y-1">
+            <div class="flex"><dt class="w-32 text-ink-400">accept</dt><dd class="text-ink-200 truncate">application/json</dd></div>
+            <div class="flex"><dt class="w-32 text-ink-400">authorization</dt><dd class="text-ink-300 truncate italic">[redacted]</dd></div>
+            <div class="flex"><dt class="w-32 text-ink-400">cookie</dt><dd class="text-ink-300 truncate italic">[redacted]</dd></div>
+            <div class="flex"><dt class="w-32 text-ink-400">user-agent</dt><dd class="text-ink-200 truncate">Mozilla/5.0 (Mac)</dd></div>
+            <div class="flex"><dt class="w-32 text-ink-400">x-request-id</dt><dd class="text-ink-200 truncate">01HX3...A9F</dd></div>
+          </dl>
+        </article>
+      </aside>
+    </main>
+
+    <!-- Timeline scrubber (sticky bottom) -->
+    <footer class="fixed inset-x-0 bottom-0 z-30 border-t border-ink-700/70 bg-ink-950/85 backdrop-blur">
+      <div class="px-4 py-2.5 flex items-center gap-3">
+        <div class="flex items-center gap-2 text-[11.5px] mono text-ink-300">
+          <button class="chip">⏮</button>
+          <button class="chip">⏯</button>
+          <button class="chip">⏭</button>
+          <span class="text-ink-100">256 ms</span>
+          <span class="text-ink-500">/ 412 ms</span>
+        </div>
+        <div class="relative flex-1 h-8 timeline-track rounded-md border border-ink-700/70 overflow-hidden">
+          <div class="absolute inset-0 grid grid-cols-12 text-[10px] text-ink-500">
+            <span class="border-r border-ink-700/50 px-1">0</span>
+            <span class="border-r border-ink-700/50 px-1">35</span>
+            <span class="border-r border-ink-700/50 px-1">70</span>
+            <span class="border-r border-ink-700/50 px-1">100</span>
+            <span class="border-r border-ink-700/50 px-1">140</span>
+            <span class="border-r border-ink-700/50 px-1">175</span>
+            <span class="border-r border-ink-700/50 px-1">210</span>
+            <span class="border-r border-ink-700/50 px-1">245</span>
+            <span class="border-r border-ink-700/50 px-1">280</span>
+            <span class="border-r border-ink-700/50 px-1">315</span>
+            <span class="border-r border-ink-700/50 px-1">350</span>
+            <span class="px-1">385</span>
+          </div>
+          <!-- events at fake percentages -->
+          <span class="timeline-event sql" style="left:5%"></span>
+          <span class="timeline-event sql" style="left:8%"></span>
+          <span class="timeline-event sql" style="left:11%"></span>
+          <span class="timeline-event sql" style="left:13%"></span>
+          <span class="timeline-event log" style="left:15%"></span>
+          <span class="timeline-event sql" style="left:18%"></span>
+          <span class="timeline-event cache" style="left:20%"></span>
+          <span class="timeline-event sql" style="left:22%"></span>
+          <span class="timeline-event sql" style="left:24%"></span>
+          <span class="timeline-event sql" style="left:25%"></span>
+          <span class="timeline-event sql" style="left:27%"></span>
+          <span class="timeline-event http" style="left:30%"></span>
+          <span class="timeline-event sql" style="left:35%"></span>
+          <span class="timeline-event sql" style="left:38%"></span>
+          <span class="timeline-event log" style="left:40%"></span>
+          <span class="timeline-event sql" style="left:43%"></span>
+          <span class="timeline-event sql" style="left:46%"></span>
+          <span class="timeline-event cache" style="left:50%"></span>
+          <span class="timeline-event exception" style="left:54%"></span>
+          <span class="timeline-event log" style="left:55%"></span>
+          <span class="timeline-event sql" style="left:60%"></span>
+          <span class="timeline-event event" style="left:64%"></span>
+          <span class="timeline-event sql" style="left:68%"></span>
+          <span class="timeline-event job" style="left:74%"></span>
+          <span class="timeline-event sql" style="left:78%"></span>
+          <span class="timeline-event sql" style="left:82%"></span>
+          <span class="timeline-event sql" style="left:86%"></span>
+          <span class="timeline-event log" style="left:90%"></span>
+          <span class="timeline-event sql" style="left:94%"></span>
+
+          <span class="timeline-cursor" id="cursor" style="left:62%"></span>
+        </div>
+        <div class="flex items-center gap-1.5 text-[11px] mono text-ink-400">
+          <span class="inline-flex items-center gap-1"><i class="inline-block w-2 h-2 rounded-sm bg-accent"></i>sql</span>
+          <span class="inline-flex items-center gap-1"><i class="inline-block w-2 h-2 rounded-sm bg-emerald-400"></i>cache</span>
+          <span class="inline-flex items-center gap-1"><i class="inline-block w-2 h-2 rounded-sm bg-warn"></i>http</span>
+          <span class="inline-flex items-center gap-1"><i class="inline-block w-2 h-2 rounded-sm bg-purple"></i>event</span>
+          <span class="inline-flex items-center gap-1"><i class="inline-block w-2 h-2 rounded-sm bg-pink"></i>job</span>
+          <span class="inline-flex items-center gap-1"><i class="inline-block w-2 h-2 rounded-sm bg-danger"></i>exception</span>
+        </div>
+      </div>
+    </footer>
+
+    <div class="h-16"></div>
+
+    <script type="module">
+      const cursor = document.getElementById('cursor');
+      const track = cursor.parentElement;
+      let dragging = false;
+      const move = (e) => {
+        const r = track.getBoundingClientRect();
+        const x = ('touches' in e ? e.touches[0].clientX : e.clientX) - r.left;
+        const pct = Math.max(0, Math.min(100, (x / r.width) * 100));
+        cursor.style.left = pct + '%';
+      };
+      track.addEventListener('mousedown', (e) => { dragging = true; move(e); });
+      window.addEventListener('mousemove', (e) => dragging && move(e));
+      window.addEventListener('mouseup', () => (dragging = false));
+    </script>
+  </body>
+</html>

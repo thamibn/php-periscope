@@ -38,8 +38,8 @@ struct Args {
     /// HTTP listen address. Defaults to localhost — *do not* bind to
     /// 0.0.0.0 unless you understand that trace contents (cookies, request
     /// bodies, captured variables) become reachable from any host that can
-    /// route to the daemon.
-    #[arg(long, default_value = "127.0.0.1:9999")]
+    /// route to the daemon. Override via `--listen` or `PERISCOPE_LISTEN`.
+    #[arg(long, env = "PERISCOPE_LISTEN", default_value = "127.0.0.1:9999")]
     listen: SocketAddr,
 
     /// Unix-domain socket path for the C extension's daemon link.
@@ -58,6 +58,11 @@ struct Args {
     /// with this flag set.
     #[arg(long)]
     dap_stdio: bool,
+
+    /// Directory containing the built SolidJS UI bundle. When set, the daemon
+    /// serves it at `/`. Defaults to the sibling `ui/dist` if it exists.
+    #[arg(long, env = "PERISCOPE_UI_DIR")]
+    ui_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -83,7 +88,12 @@ async fn main() -> Result<()> {
     let mut tasks: Vec<tokio::task::JoinHandle<Result<()>>> = vec![];
 
     if !args.no_http {
-        let state = ApiState::new(args.trace_dir.clone(), project_root.clone(), bus.clone());
+        let ui_dir = resolve_ui_dir(args.ui_dir.clone(), &project_root);
+        if let Some(dir) = &ui_dir {
+            tracing::info!(ui_dir=%dir.display(), "serving ui bundle at /");
+        }
+        let state = ApiState::new(args.trace_dir.clone(), project_root.clone(), bus.clone())
+            .with_ui_dir(ui_dir);
         let listen = args.listen;
         tasks.push(tokio::spawn(async move {
             api::serve(state, listen).await
@@ -146,6 +156,20 @@ async fn main() -> Result<()> {
         t.abort();
     }
     Ok(())
+}
+
+fn resolve_ui_dir(explicit: Option<PathBuf>, project_root: &PathBuf) -> Option<PathBuf> {
+    if let Some(d) = explicit {
+        return d.is_dir().then_some(d);
+    }
+    // Check sibling locations relative to the daemon binary's project layout.
+    let candidates = [
+        project_root.join("ui/dist"),
+        PathBuf::from("ui/dist"),
+        // when running from daemon/, the UI sits one level up
+        PathBuf::from("../ui/dist"),
+    ];
+    candidates.into_iter().find(|p| p.is_dir())
 }
 
 fn init_tracing() {

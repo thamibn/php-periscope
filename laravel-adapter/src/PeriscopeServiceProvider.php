@@ -11,8 +11,10 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Redis\Factory as RedisFactory;
 use Illuminate\Contracts\View\Factory as ViewFactory;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use Periscope\Laravel\Bridge\ExtensionBridge;
+use Periscope\Laravel\Http\UiController;
 use Periscope\Laravel\Detection\AiAdvisor;
 use Periscope\Laravel\Detection\NPlusOneDetector;
 use Periscope\Laravel\Detection\SlowQueryAnalyzer;
@@ -107,6 +109,69 @@ final class PeriscopeServiceProvider extends ServiceProvider
         foreach ($this->resolveHooks() as $hook) {
             $hook->register();
         }
+
+        $this->registerUiRoutes();
+    }
+
+    /**
+     * Mount the SolidJS UI inside the Laravel app at a configurable prefix.
+     * Off by default so the package never collides with app routes.
+     */
+    private function registerUiRoutes(): void
+    {
+        $config = $this->app['config'];
+        if (!$config->get('periscope.ui.enabled', false)) {
+            return;
+        }
+
+        $bundleDir = $this->resolveBundleDir((string) $config->get('periscope.ui.bundle_dir', '') ?: null);
+        $daemonBase = (string) $config->get('periscope.ui.daemon_base', 'http://127.0.0.1:9999');
+
+        $this->app->singleton(UiController::class, fn (): UiController => new UiController(
+            bundleDir: $bundleDir,
+            daemonBase: $daemonBase,
+        ));
+
+        $prefix = trim((string) $config->get('periscope.ui.path', 'periscope'), '/');
+        $middleware = (array) $config->get('periscope.ui.middleware', ['web']);
+
+        /** @var Router $router */
+        $router = $this->app->make(Router::class);
+        $router
+            ->middleware($middleware)
+            ->prefix($prefix === '' ? '/' : $prefix)
+            ->group(function (Router $r): void {
+                $r->get('/', [UiController::class, 'index'])->name('periscope.ui.index');
+                $r->get('assets/{path}', [UiController::class, 'asset'])
+                    ->where('path', '.*')
+                    ->name('periscope.ui.asset');
+            });
+    }
+
+    /**
+     * Probe a few sensible locations for `ui/dist/`, falling back to whatever
+     * the user passed explicitly. Returns the first directory that exists.
+     */
+    private function resolveBundleDir(?string $explicit): string
+    {
+        if ($explicit !== null && $explicit !== '' && is_dir($explicit)) {
+            return $explicit;
+        }
+        $candidates = [
+            // Sibling to the package (path-repo / monorepo development)
+            __DIR__ . '/../../../ui/dist',
+            // composer-installed: vendor/periscopephp/laravel/ → vendor/../../ui/dist
+            base_path('ui/dist'),
+            // app's own published copy
+            base_path('public/vendor/periscope'),
+        ];
+        foreach ($candidates as $c) {
+            $real = realpath($c);
+            if ($real !== false && is_dir($real)) {
+                return $real;
+            }
+        }
+        return $explicit ?? ($candidates[0] ?? '');
     }
 
     /**

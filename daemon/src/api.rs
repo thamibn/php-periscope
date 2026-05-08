@@ -25,6 +25,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::ext_link::LinkBus;
 use crate::insights;
@@ -38,6 +39,10 @@ pub struct ApiState {
     pub trace_dir: PathBuf,
     pub project_root: PathBuf,
     pub bus: Arc<LinkBus>,
+    /// Optional path to a built `ui/dist/` directory. When set, the daemon
+    /// serves the SolidJS app at `/` and falls back to `index.html` for
+    /// unknown routes (SPA-style).
+    pub ui_dir: Option<PathBuf>,
 }
 
 impl ApiState {
@@ -50,7 +55,13 @@ impl ApiState {
             trace_dir: trace_dir.into(),
             project_root: project_root.into(),
             bus,
+            ui_dir: None,
         }
+    }
+
+    pub fn with_ui_dir(mut self, ui_dir: Option<PathBuf>) -> Self {
+        self.ui_dir = ui_dir;
+        self
     }
 }
 
@@ -60,7 +71,9 @@ pub fn router(state: ApiState) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    let ui_dir = state.ui_dir.clone();
+
+    let mut router = Router::new()
         .route("/api/health", get(health))
         .route("/api/traces", get(list_traces).delete(clear_traces))
         .route("/api/traces/:id", get(get_trace).delete(delete_trace))
@@ -76,8 +89,17 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/file", get(read_file))
         .route("/api/traces/:id/rerun", post(rerun_stub))
         .route("/ws", get(ws_handler))
-        .with_state(Arc::new(state))
-        .layer(cors)
+        .with_state(Arc::new(state));
+
+    if let Some(dir) = ui_dir {
+        // Serve the built SolidJS bundle. SPA-style fallback to index.html
+        // so deep links like `/traces/abc` route through the client app.
+        let index = dir.join("index.html");
+        let serve_dir = ServeDir::new(dir).fallback(ServeFile::new(index));
+        router = router.fallback_service(serve_dir);
+    }
+
+    router.layer(cors)
 }
 
 pub async fn serve(state: ApiState, addr: SocketAddr) -> Result<()> {
@@ -98,12 +120,14 @@ pub async fn serve(state: ApiState, addr: SocketAddr) -> Result<()> {
 struct HealthResponse {
     status: &'static str,
     version: &'static str,
+    trace_dir: String,
 }
 
-async fn health() -> Json<HealthResponse> {
+async fn health(State(state): State<Arc<ApiState>>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
+        trace_dir: state.trace_dir.display().to_string(),
     })
 }
 

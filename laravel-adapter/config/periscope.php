@@ -117,6 +117,34 @@ return [
     */
     'n_plus_one_threshold' => (int) env('PERISCOPE_N_PLUS_ONE_THRESHOLD', 4),
 
+    /*
+    |---------------------------------------------------------------------
+    | Browser UI mount (opt-in)
+    |---------------------------------------------------------------------
+    | Off by default so the package never adds routes to your app without
+    | being asked. When enabled, the SolidJS UI is served from inside the
+    | Laravel app at `path` (default `periscope`) — i.e. `app.test/periscope`
+    | — alongside hashed assets at `app.test/{path}/assets/...`.
+    |
+    | The UI itself talks back to the Rust daemon's HTTP/WebSocket API at
+    | `daemon_base` for trace data; no PHP proxy. Set `daemon_base` to
+    | whatever your daemon is reachable at (default localhost:9999).
+    |
+    | This is *one of several* ways to reach the UI; you can also:
+    |   - hit the daemon directly at http://localhost:9999
+    |   - open an exported `.html` from `periscope-export`
+    | Pick whichever fits the workflow.
+    */
+    'ui' => [
+        'enabled'     => (bool) env('PERISCOPE_UI_ENABLED', false),
+        'path'        => trim((string) env('PERISCOPE_UI_PATH', 'periscope'), '/'),
+        'middleware'  => array_filter(array_map('trim', explode(',', (string) env('PERISCOPE_UI_MIDDLEWARE', 'web')))),
+        'daemon_base' => rtrim((string) env('PERISCOPE_UI_DAEMON_BASE', 'http://127.0.0.1:9999'), '/'),
+        // Absolute path to the built `ui/dist/` directory. When unset the
+        // adapter probes a few common locations relative to the package.
+        'bundle_dir'  => env('PERISCOPE_UI_BUNDLE_DIR'),
+    ],
+
     'vendor_skip' => [
         '/vendor/laravel/',
         '/vendor/illuminate/',
