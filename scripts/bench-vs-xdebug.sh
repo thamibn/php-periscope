@@ -58,3 +58,48 @@ run "mode=trace (call records, no vars)" \
     $PHP -n -d zend_extension="$XDEBUG_SO" -d xdebug.mode=trace -d xdebug.output_dir="$TRACE_OUT" -d xdebug.start_with_request=yes
 run "mode=profile (callgrind, no vars)" \
     $PHP -n -d zend_extension="$XDEBUG_SO" -d xdebug.mode=profile -d xdebug.output_dir="$TRACE_OUT" -d xdebug.start_with_request=yes
+
+# ---------------------------------------------------------------------------
+# Phase 5 scenario — 600 mixed observable events through the Laravel adapter.
+# Measures the *marginal* cost of QueryHook/CacheHook/LogHook/EventHook firing
+# real events — the dimension xdebug can't observe at all (it traces functions,
+# not Laravel events). Bench is otherwise apples-to-apples on the same fixture.
+# ---------------------------------------------------------------------------
+
+LARAVEL_FIXTURE="tests/perf/laravel-load.php"
+[ -f "$LARAVEL_FIXTURE" ] || { echo "missing $LARAVEL_FIXTURE" >&2; exit 1; }
+
+# The fixture needs Laravel's autoloader (loads Testbench), so we don't pass
+# `-n` (no-INI) like the fib bench — composer-installed extensions that the
+# adapter relies on (json, openssl, etc.) need to load. We pass only the
+# extensions we're benching as explicit `-d extension=…`.
+run_full() {
+    local label="$1"; shift
+    printf "  %-55s " "$label"
+    # Discard stderr (full-capture periscope is *very* verbose); fixture
+    # prints its timing line to stdout so we only need to filter that.
+    PHP_INI_SCAN_DIR=/dev/null "$@" "$LARAVEL_FIXTURE" 2>/dev/null \
+        | grep "laravel-load" | head -1 || true
+}
+
+echo ""
+echo "Phase 5 scenario: 600 events through Laravel hooks"
+echo "==================================================="
+echo ""
+echo "Periscope:"
+run_full "no extension (Laravel adapter idle)" \
+    "$PHP"
+run_full "kill switch (loaded, disabled)" \
+    "$PHP" -d extension="$PERI_SO" -d periscope.disabled=1
+run_full "full capture (every call + every event)" \
+    "$PHP" -d extension="$PERI_SO" -d periscope.skip_internal=1 -d periscope.trace_dir="$TRACE_OUT"
+
+echo ""
+echo "Xdebug 3.x (function-level only — no Laravel-event observability):"
+run_full "mode=off" \
+    "$PHP" -d zend_extension="$XDEBUG_SO" -d xdebug.mode=off
+run_full "mode=develop" \
+    "$PHP" -d zend_extension="$XDEBUG_SO" -d xdebug.mode=develop
+run_full "mode=trace (call records, no vars)" \
+    "$PHP" -d zend_extension="$XDEBUG_SO" -d xdebug.mode=trace \
+    -d xdebug.output_dir="$TRACE_OUT" -d xdebug.start_with_request=yes

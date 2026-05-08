@@ -83,28 +83,52 @@ Periscope speaks **DAP** — the protocol VSCode, Neovim, Zed, Sublime, Helix, a
 
 ---
 
-## Head-to-head benchmark (PHP 8.3.22, macOS arm64, fib(25) ≈ 242k recursive calls)
+## Head-to-head benchmark (PHP 8.3.22, macOS arm64)
 
-Same machine, same script, same warmup. Run the bench yourself with `bash scripts/bench-vs-xdebug.sh` (after `make extension` and `pecl install xdebug`).
+Same machine, same script, same warmup. Run the bench yourself with `bash scripts/bench-vs-xdebug.sh` (after `make extension`, `cargo build --bin periscope-dump`, and `pecl install xdebug`).
+
+### Bench A — fib(25) (~242k recursive function calls, no observability events)
+
+This is the pure function-call cost. Most representative of "what does the C extension cost on a tight CPU loop?"
 
 | Tool | Mode | fib(25) time | × baseline |
 |---|---|---|---|
-| (none) | baseline | 6.70ms | 1.00× |
-| **periscope** | kill switch (loaded, disabled) | **8.50ms** | **1.27×** |
-| **periscope** | namespace filter (no match) | **8.21ms** | **1.23×** |
-| **periscope** | full capture (vars + types + timings every call) | **323ms** | **48.3×** |
-| xdebug 3.5.1 | `mode=off` | 6.64ms | 0.99× |
-| xdebug 3.5.1 | `mode=develop` (loaded, inactive) | 27.8ms | 4.15× |
-| xdebug 3.5.1 | `mode=trace` (call records, no vars) | 1326ms | 198× |
-| xdebug 3.5.1 | `mode=profile` (callgrind, no vars) | 152ms | 22.7× |
+| (none) | baseline | 6.48ms | 1.00× |
+| **periscope** | kill switch (loaded, disabled) | **7.91ms** | **1.22×** |
+| **periscope** | namespace filter (no match) | **8.08ms** | **1.25×** |
+| **periscope** | full capture (vars + types + timings every call) | **257ms** | **39.7×** |
+| xdebug 3.5.1 | `mode=off` | 6.65ms | 1.03× |
+| xdebug 3.5.1 | `mode=develop` (loaded, inactive) | 27.7ms | 4.27× |
+| xdebug 3.5.1 | `mode=trace` (call records, no vars) | 1406ms | 217× |
+| xdebug 3.5.1 | `mode=profile` (callgrind, no vars) | 158ms | 24.4× |
 
-**Read the table this way:**
+**Headlines:**
+- **Inactive overhead**: periscope is **3.5× faster than Xdebug** when both are loaded but not actively recording. (1.22× vs 4.27×.)
+- **Full capture overhead**: periscope is **5.5× faster than Xdebug trace mode** — *and* periscope captures full typed variable snapshots that xdebug trace mode does not.
+- xdebug `profile` is the only mode where xdebug is faster, because it does no variable capture and no call records — it emits a callgrind file for KCacheGrind. Different feature; not comparable.
 
-- **Inactive overhead**: periscope is **3.3× faster than Xdebug** when both are loaded but not actively recording. (1.27× vs 4.15×.)
-- **Full capture overhead**: periscope is **4.1× faster than Xdebug trace mode** *and* periscope captures full typed variable snapshots — Xdebug trace mode only writes call records with no variable data.
-- The only category where Xdebug is faster (`mode=profile`, 152ms) does no variable capture at all — it's a different feature (callgrind output for KCacheGrind), not directly comparable.
+### Bench B — Laravel hooks scenario (600 mixed observable events)
 
-Phase 4 (binary Cap'n Proto trace replacing stderr text formatting) is expected to cut full-capture overhead another 5–10×.
+This is the bench that matters for v1's pitch. Boots Laravel, registers the periscope adapter, then fires **100 SQL queries + 300 cache events + 100 log lines + 100 user events** through the hook chain in a tight loop. Captures the marginal cost of `QueryHook` / `CacheHook` / `LogHook` / `EventHook` doing their job.
+
+Xdebug has no Laravel-event observability — it only sees function calls. Numbers below are "same fixture, same loop", but xdebug only shows the function-level cost, not anything equivalent to what periscope captures.
+
+| Tool | Mode | 600-event loop | What it captured |
+|---|---|---|---|
+| (none) | no extension | 5.0ms | nothing |
+| **periscope** | kill switch (loaded, disabled) | **45.6ms** | nothing — bridge no-ops |
+| **periscope** | full capture (every call + every event with call sites) | **172.2ms** | every SQL + bindings + timing, every cache op, every log line, every event — all with `file:line` + ±6 source snippet |
+| xdebug 3.5.1 | `mode=off` | 1.2ms | nothing |
+| xdebug 3.5.1 | `mode=develop` | 4.3ms | nothing observable to user |
+| xdebug 3.5.1 | `mode=trace` | 436ms | function calls only — no Laravel events captured |
+
+**Headlines:**
+- **Periscope under full capture (172ms) is 2.5× faster than xdebug trace mode (436ms)** — and periscope captures the entire Laravel observability stream (SQL, cache, log, events, exceptions, n+1) which xdebug trace simply cannot see.
+- This is the dimension xdebug doesn't compete on. If you want "see every query, log line, cache op, and event with the exact `file:line` of your code that triggered each" you need either Telescope (post-mortem only), DebugBar (footer-only, no breakpoints), or periscope (live, while paused).
+
+### Phase 4+ optimizations already applied
+
+The first POSITIONING numbers measured stderr-text emission. Phase 4 swapped that for binary Cap'n Proto, which is what the table above reflects. Further wins on the roadmap: mmap reader (Phase 7) for sub-millisecond trace open, and structured (typed) event variants for ~30% smaller traces.
 
 ## Where we *don't* differentiate (honesty section)
 

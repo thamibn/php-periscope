@@ -63,6 +63,62 @@ make trace-clean PERISCOPE_TRACE_DIR=/some/path   # custom dir
 
 **Privacy note** — traces capture request bodies, cookies, headers, and variable contents. They may contain secrets. Don't commit them. Don't ship them to support without redaction. The C extension already redacts a default set of headers (`Authorization`, `Cookie`, `Set-Cookie`); see [`docs/SCOPE.md`](docs/SCOPE.md) for the full redaction policy.
 
+## Try it on any Laravel app (development preview)
+
+Until Phase 11 ships brew/PECL bottles, here's the manual three-step attach. Works on any Laravel 11 / 12 / 13 project. Leaves no permanent changes — composer state is reverted by the cleanup step.
+
+**1. Build periscope locally (one-time):**
+
+```bash
+git clone https://github.com/periscopephp/php-periscope.git
+cd php-periscope
+make extension                         # builds extension/modules/periscope.so
+cd daemon && cargo build && cd ..      # builds daemon/target/debug/periscope-dump
+```
+
+**2. Add the adapter to your Laravel app via path repository (no Packagist install):**
+
+```bash
+cd /path/to/your-laravel-app
+
+# snapshot composer state for clean revert
+cp composer.json composer.json.bak
+cp composer.lock composer.lock.bak
+
+composer config repositories.periscope path /path/to/php-periscope/laravel-adapter
+composer require periscopephp/laravel:dev-main
+```
+
+**3. Run any artisan command (or HTTP request) with the C extension loaded:**
+
+```bash
+mkdir -p /tmp/periscope
+
+PHP_INI_SCAN_DIR=/dev/null php \
+    -d extension=/path/to/php-periscope/extension/modules/periscope.so \
+    -d periscope.skip_internal=1 \
+    -d periscope.trace_dir=/tmp/periscope \
+    artisan tinker --execute="\App\Models\User::query()->first();"
+
+# inspect the trace
+ls -t /tmp/periscope/*.cptrace | head -1 | xargs \
+    /path/to/php-periscope/daemon/target/debug/periscope-dump --json | less
+```
+
+You'll see every SQL query, cache op, log line, and event with the exact `file:line` of your code that triggered it — plus N+1 warnings and AI suggestions when enabled.
+
+**Cleanup (revert all changes):**
+
+```bash
+cd /path/to/your-laravel-app
+mv composer.json.bak composer.json
+mv composer.lock.bak composer.lock
+composer install
+rm -rf /tmp/periscope
+```
+
+For Valet / FPM web requests, the same flags need to live in your loaded `php.ini` (or a `conf.d/99-periscope.ini` you remove afterwards) — the per-process `-d` flags don't reach Valet's PHP-FPM.
+
 ## Installing for end users (eventually)
 
 End users will install precompiled binaries — **no Rust, C++, or C toolchain required**:
