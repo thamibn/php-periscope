@@ -23,6 +23,7 @@
 #include "periscope_filter.h"
 #include "periscope_capture.h"
 #include "periscope_trace.h"
+#include "periscope_userland.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(periscope)
 
@@ -438,7 +439,7 @@ static PHP_MINFO_FUNCTION(periscope)
 zend_module_entry periscope_module_entry = {
     STANDARD_MODULE_HEADER,
     PHP_PERISCOPE_EXTNAME,
-    NULL,
+    periscope_userland_functions,
     PHP_MINIT(periscope),
     PHP_MSHUTDOWN(periscope),
     PHP_RINIT(periscope),

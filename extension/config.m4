@@ -30,7 +30,7 @@ if test "$PHP_PERISCOPE" != "no"; then
   CXXFLAGS="$CXXFLAGS -std=c++17"
 
   PHP_NEW_EXTENSION(periscope,
-    periscope.c periscope_filter.c periscope_capture.c periscope_trace.cc trace.capnp.cpp,
+    periscope.c periscope_filter.c periscope_capture.c periscope_userland.c periscope_trace.cc trace.capnp.cpp,
     $ext_shared,,$CAPNP_CFLAGS)
 
   PHP_SUBST(PERISCOPE_SHARED_LIBADD)

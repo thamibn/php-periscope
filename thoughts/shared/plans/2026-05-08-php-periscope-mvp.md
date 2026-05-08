@@ -423,6 +423,101 @@ Use `capnp` crate. mmap the trace file. Provide a `Trace::open(path)` API that r
 
 ---
 
+## Phase 5 watcher coverage — full Telescope parity
+
+v1 ships **all 18 Laravel Telescope watchers** in the `thamibn/periscope-laravel` adapter. Source of truth: https://laravel.com/docs/13.x/telescope. Each watcher is one Hook class in `laravel-adapter/src/Hooks/`, all forward to the C extension via `periscope_record_event()`.
+
+| # | Watcher | What it captures | Laravel event/hook |
+|---|---------|------------------|---------------------|
+| 1 | **BatchWatcher** | Queued batch info (job + connection details) | `Bus::batched`, batch lifecycle events |
+| 2 | **CacheWatcher** | Cache hits, misses, updates, forgotten keys | `CacheHit`, `CacheMissed`, `KeyWritten`, `KeyForgotten` events |
+| 3 | **CommandWatcher** | Artisan command execution: arguments, options, exit code, output | `Console\Events\CommandStarting/Finished` |
+| 4 | **DumpWatcher** | `dump()` calls — variable dumps | Custom hook on `dump` global |
+| 5 | **EventWatcher** | Dispatched events: payload, listeners, broadcast data (excludes framework internals) | `Event::listen('*')` |
+| 6 | **ExceptionWatcher** ★ | Reportable exceptions: data + stack trace | Exception handler / `Log::error` |
+| 7 | **GateWatcher** | Gate / policy authorization checks: data + result | `Gate::after`, `Gate::before` |
+| 8 | **HttpClientWatcher** | Outgoing HTTP client requests | `Http::globalMiddleware`, `RequestSending`/`ResponseReceived` events |
+| 9 | **JobWatcher** | Queued jobs: data + status | `Queue::before/after/failing` |
+| 10 | **LogWatcher** | Application log lines (default: error+, configurable) | `Log::listen` |
+| 11 | **MailWatcher** | Sent emails: preview + recipient + data | `MessageSending`, `MessageSent` events |
+| 12 | **ModelWatcher** ★ | Eloquent model events (creating/created/updating/updated/deleting/deleted/retrieved) **plus per-class hydration counts** ("this request hydrated `Listing` × 5432, `Agency` × 1200, `User` × 45") — DebugBar-style aggregate that surfaces over-fetching at a glance | `eloquent.created:*`, `eloquent.updated:*`, `eloquent.deleted:*`, `eloquent.retrieved:*` |
+| 13 | **NotificationWatcher** | Sent notifications | `NotificationSending`, `NotificationSent` |
+| 14 | **QueryWatcher** | DB queries: raw SQL, bindings, time, slow-query flag (default 100ms) | `DB::listen` |
+| 15 | **RedisWatcher** | Redis commands (includes cache commands) | `Redis::enableEvents` + `CommandExecuted` |
+| 16 | **RequestWatcher** | HTTP request data, headers, session, response | RouteMatched + Response middleware |
+| 17 | **ScheduleWatcher** | Scheduled task execution: command + output | `Schedule\Events\ScheduledTaskStarting/Finished` |
+| 18 | **ViewWatcher** | View rendering: name, path, data, composers | `composing:*` event |
+
+★ = highest-priority differentiators (Exception + Model are critical for the "AI tells you what's wrong" pitch; without them the AI is blind to the most common failure modes).
+
+**Implementation note:** every event payload includes a **CallSite** (`file`, `line`, `snippet`, `frameStack`) per Appendix A.5 — clicking any event in the UI jumps to the user-code line that triggered it. This is what makes "10× queries from ListingResource.php:42" work.
+
+### Phase 5 also includes DebugBar-style aggregate "summary" counts
+
+For every observable event type, the UI also surfaces aggregate totals over the request — the at-a-glance numbers DebugBar puts in its footer:
+
+- **Queries**: total count, total time, slow-query count, N+1 warning count, by connection
+- **Models hydrated**: per-class counts (`Listing × 5432`, `Agency × 1200`)
+- **Cache**: hit count / miss count / hit ratio, by store
+- **Logs**: count by level (debug, info, warning, error)
+- **Jobs dispatched**: count by class + queue
+- **Events fired**: count by class
+- **HTTP calls**: count, total bytes, total time, by host
+- **Mail sent**: count by recipient domain
+- **Notifications sent**: count by channel
+- **Memory**: peak resident, peak per-frame
+- **Time**: total request duration, top 10 slowest frames
+
+These are derived in the daemon (Phase 6+) by summing/grouping the per-event data already in the trace. No new C-extension work — the watchers emit individual events; the daemon's reader aggregates on-demand for the UI and `/api/traces/{id}/summary`. Same data also feeds the AI insights endpoint.
+
+### Phase 5 differentiators — spices on top of Telescope/DebugBar parity
+
+Telescope-parity is the *floor*, not the pitch. Each of these is a concrete feature neither Telescope nor DebugBar nor Clockwork ships, designed so the answer to "what's different from Telescope?" is obvious at a glance:
+
+1. **Time-travel scrubbing with per-frame variable state** ★
+   The single biggest unique feature. Drag the timeline, see every variable at every frame redraw in real time. Telescope is post-mortem; DebugBar is live but flat; we are live AND scrubbable. (Phase 7 + 8 + 9.)
+
+2. **N+1 with concrete fix suggestions, not just warnings** ★
+   Telescope flags slow queries. We detect the pattern (same SQL ran N times in one frame, bindings differ only by id) AND surface the exact code change: *"add `->with('agency')` to the query at `ListingService.php:42`"*. Implemented as a deterministic heuristic in the daemon (Phase 6 `/api/traces/{id}/insights`).
+
+3. **Per-frame memory delta** ★
+   DebugBar shows peak memory globally. We attach `memory_delta_bytes` to every frame: *"`Foo::loadAll` added 47MB."* Already trivial to capture (read `memory_get_usage()` at frame entry/exit in the C extension; subtract). Surfaces memory hogs to the second.
+
+4. **Authorization decision trail**
+   Every `Gate::allows()` / `Policy::can()` check captured WITH the values it compared. Telescope shows "GateChecked: update — denied". We show: *"GateChecked: update Listing#128 — denied because ListingPolicy::update at line 14 returned false (compared `$user->id` (42) !== `$listing->user_id` (88))."* Comes "for free" because we already capture frame variables at every call (Phase 3) — the GateWatcher just links the check event to the frame's locals.
+
+5. **Synthetic checkpoints** (`periscope_checkpoint(string $label, mixed $context = null): void`)
+   Userland-callable from any PHP code. Drops a labeled marker on the timeline. *"Checkpoint: after auth resolved."* Useful for non-framework code paths where Laravel events don't fire. Trivial to implement (one userland function in the C extension; one event type in the trace).
+
+6. **Trace tags + bookmarks**
+   Annotate any trace ("the broken one") or specific frame ("the line where it goes wrong") with text. Stored in a sidecar `.tags.json` next to the `.cptrace`. Survives across sessions. Useful for "I'll come back to this tomorrow" workflows.
+
+7. **Per-route history view**
+   See all traces for `/listings/{id}` — rank by slowest, most queries, error rate, p95. Telescope lets you filter; we surface aggregate trends across requests. Powered by reading the request envelope (Phase 4 schema) across the trace dir.
+
+8. **Performance budgets**
+   `periscope.budget.queries=50`, `periscope.budget.duration_ms=500`, `periscope.budget.memory_mb=128`. Trace gets flagged if exceeded. Surfaces in UI + `/api/traces/{id}/insights`. CI-friendly (run integration tests with budgets, fail the build on regression).
+
+9. **AI co-pilot integration** ★
+   Per Appendix A.6 — full structured access via HTTP API + MCP server, plus deterministic insights. Your AI assistant becomes a debugging pair partner. No equivalent in Telescope/DebugBar/Clockwork.
+
+10. **Live overlay**
+    Browser UI open + you hit a route → traces stream in live, UI animates. Telescope has SPA tab navigation but no live frame-by-frame animation.
+
+11. **Trace diff** (Phase 9b stretch)
+    Compare two traces side-by-side. Useful for "what changed when I added the cache layer?" — see the delta in queries, memory, frames.
+
+12. **Lazy/proxy detection in observation** ★
+    Per Appendix A.5 / Phase 3 — when capturing variables, we explicitly do NOT trigger `__get`. Telescope/DebugBar's variable dumps fire lazy-load proxies (Doctrine + some Laravel relations), introducing observation-side-effects. We don't. Means inspecting an Eloquent model in periscope NEVER triggers a database round-trip.
+
+★ = headline differentiators that get top billing in the launch blog and README.
+
+**The pitch becomes:**
+
+> *"Telescope + DebugBar + Clockwork + Xdebug — minus all four UIs, plus time-travel, N+1 fix suggestions, per-frame memory deltas, synthetic checkpoints, and an AI co-pilot. One install, one tab, no waiting for the request to finish."*
+
+---
+
 ## Phase 5: Laravel Adapter (Composer Package)
 
 ### Overview

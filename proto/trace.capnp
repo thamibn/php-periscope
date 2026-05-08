@@ -212,7 +212,28 @@ struct ObservabilityEvent {
     mailSent            @10 :MailEvent;
     nPlusOne            @11 :NPlusOneWarning;
     requestResolved     @12 :RequestResolvedEvent;
+    # v1 fallback: type tag + JSON-encoded payload. Phase 6+ migrates to
+    # typed variants above. The reader handles either form transparently.
+    genericJson         @13 :GenericJsonEvent;
   }
+  userCallSite          @14 :CallSite;
+}
+
+struct GenericJsonEvent {
+  type                   @0 :Text;       # "sql", "log", "cache", "http", ...
+  payloadJson            @1 :Text;       # arbitrary JSON shape — see laravel-adapter/docs/EVENT_PAYLOADS.md
+}
+
+struct CallSite {
+  file                   @0 :Text;
+  line                   @1 :UInt32;
+  snippet                @2 :List(SnippetLine);
+  frameStack             @3 :List(UInt32);   # frame ids root → leaf
+}
+
+struct SnippetLine {
+  number                 @0 :UInt32;
+  source                 @1 :Text;
 }
 
 struct SqlQueryEvent {
