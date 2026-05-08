@@ -36,3 +36,27 @@ it('captures source snippet around the call line', function (): void {
     $lineNumbers = array_column($cs['snippet'], 'number');
     expect($lineNumbers)->toContain($cs['line']);
 });
+
+it('statementSnippet captures a multi-line Eloquent chain as one block', function (): void {
+    $tmp = tempnam(sys_get_temp_dir(), 'periscope-stmt-');
+    file_put_contents(
+        $tmp,
+        "<?php\n\$x = 1;\n\$users = User::query()\n    ->where('status', 'active')\n    ->orderBy('id')\n    ->get();\n\$y = 2;\n"
+    );
+
+    $resolver   = new CallSiteResolver(snippetLines: 0);
+    $reflection = new ReflectionClass($resolver);
+    $method     = $reflection->getMethod('statementSnippet');
+    $method->setAccessible(true);
+
+    // Inside ->where(...) (line 4) — should expand up to ::query (line 3) and
+    // down to ->get(); (line 6), giving the whole chain back.
+    $snippet = $method->invoke($resolver, $tmp, 4);
+    $lines   = array_column($snippet, 'number');
+
+    expect($lines)->toBe([3, 4, 5, 6])
+        ->and($snippet[0]['source'])->toContain('User::query()')
+        ->and($snippet[3]['source'])->toContain('->get();');
+
+    unlink($tmp);
+});

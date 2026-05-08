@@ -37,6 +37,15 @@ final readonly class CallSiteResolver
     ) {}
 
     /**
+     * Resolve the topmost user-code call site.
+     *
+     * @param  bool $statementSnippet When true, snippet captures the entire
+     *         PHP statement that contains the call site (e.g. a full Eloquent
+     *         chain spanning multiple lines), rather than ±N lines of context.
+     *         For query / N+1 events this is what the user actually wants to
+     *         see — the offending Builder chain, not the surrounding `for`
+     *         loop or comments.
+     *
      * @return array{
      *   file: string,
      *   line: int,
@@ -45,7 +54,7 @@ final readonly class CallSiteResolver
      *   stack: list<array{file: string, line: int, function: string}>
      * }|null
      */
-    public function resolve(): ?array
+    public function resolve(bool $statementSnippet = false): ?array
     {
         $bt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, $this->maxBacktrace);
 
@@ -86,7 +95,9 @@ final readonly class CallSiteResolver
         return [
             'file'        => $top['file'],
             'line'        => $top['line'],
-            'snippet'     => $this->snippet($top['file'], $top['line']),
+            'snippet'     => $statementSnippet
+                ? $this->statementSnippet($top['file'], $top['line'])
+                : $this->snippet($top['file'], $top['line']),
             'frame_stack' => [],
             'stack'       => $stack,
         ];
@@ -116,6 +127,68 @@ final readonly class CallSiteResolver
             }
         }
         return false;
+    }
+
+    /**
+     * Statement-aware snippet — captures the full PHP statement that the
+     * offending line is part of, so multi-line Eloquent / Builder chains
+     * land in the panel as one cohesive block.
+     *
+     * Heuristic: walk backwards from $line until we hit a line whose trimmed
+     * tail is `;`, `{`, `}`, or PHP open tag — that's the previous statement
+     * boundary. Walk forward from $line until we hit a line ending with `;` —
+     * that's the end. Capture everything in between.
+     *
+     * For chains like:
+     *   $users = User::query()
+     *       ->where('status', 'active')
+     *       ->orderBy('id')
+     *       ->get();
+     * we end up with the four-line statement instead of three lines of
+     * surrounding context.
+     *
+     * @return list<array{number: int, source: string}>
+     */
+    private function statementSnippet(string $file, int $line): array
+    {
+        if (!is_readable($file)) {
+            return [];
+        }
+        $lines = @file($file, FILE_IGNORE_NEW_LINES);
+        if ($lines === false || $line <= 0 || $line > count($lines)) {
+            return [];
+        }
+
+        $idx       = $line - 1; // zero-based
+        $startIdx  = $idx;
+        $endIdx    = $idx;
+        $maxSpan   = 30; // safety cap so a malformed file can't blow up the panel
+
+        // Walk backward to find the start of the statement.
+        for ($i = $idx - 1; $i >= 0 && ($idx - $i) <= $maxSpan; $i--) {
+            $trim = rtrim($lines[$i]);
+            $tail = substr($trim, -1);
+            if ($trim === '' || $trim === '<?php' || $tail === ';' || $tail === '{' || $tail === '}') {
+                break;
+            }
+            $startIdx = $i;
+        }
+
+        // Walk forward to the line that closes the statement.
+        $countLines = count($lines);
+        for ($i = $idx; $i < $countLines && ($i - $idx) <= $maxSpan; $i++) {
+            $endIdx = $i;
+            $trim   = rtrim($lines[$i]);
+            if (str_ends_with($trim, ';')) {
+                break;
+            }
+        }
+
+        $out = [];
+        for ($i = $startIdx; $i <= $endIdx; $i++) {
+            $out[] = ['number' => $i + 1, 'source' => $lines[$i]];
+        }
+        return $out;
     }
 
     /**
