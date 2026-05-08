@@ -14,7 +14,7 @@ echo array_sum([1, 2, 3]), "\n";
 --EXPECTF--
 periscope loaded
 [periscope] enter {main}() @depth=1
-[periscope] enter array_sum(array $array = array(3)) @depth=2
+[periscope] enter array_sum(array $array = array(3) [0: int(1), 1: int(2), 2: int(3)]) @depth=2
 [periscope] exit  array_sum: int|float -> int(6) (%fms) @depth=2
 6
 [periscope] exit  {main} -> int(1) (%fms) @depth=1

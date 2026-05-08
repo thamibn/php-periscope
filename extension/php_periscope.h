@@ -1,6 +1,7 @@
 #ifndef PHP_PERISCOPE_H
 #define PHP_PERISCOPE_H
 
+#include "Zend/zend_smart_str.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -12,9 +13,19 @@
 #define PERISCOPE_MAX_DEPTH 4096
 
 ZEND_BEGIN_MODULE_GLOBALS(periscope)
+    /* INI-controlled */
     bool skip_internal;
+    bool disabled;            /* PERISCOPE_DISABLE env or periscope.disabled */
+    zend_long max_depth;
+    zend_long max_string;
+    zend_long max_array_items;
+    zend_long max_object_props;
+    char *namespace_filter;
+
+    /* Runtime */
     int  depth;
     uint64_t enter_us[PERISCOPE_MAX_DEPTH];
+    smart_str scratch;        /* reusable buffer to avoid per-call malloc */
 ZEND_END_MODULE_GLOBALS(periscope)
 
 ZEND_EXTERN_MODULE_GLOBALS(periscope)

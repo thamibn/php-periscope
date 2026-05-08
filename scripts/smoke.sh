@@ -68,4 +68,40 @@ printf '%s\n' "$log" | grep -q 'int $n = int(' && \
   fail "fixture: missing typed parameter dump"
 
 echo ""
+echo "Phase 3 smoke tests"
+echo "==================="
+
+# 10. Capture fixture exercises objects, enums, cycles, lazy proxies
+capture_log="$($PHP -d extension="$SO" tests/integration/capture.php 2>&1 1>/dev/null)"
+printf '%s\n' "$capture_log" | grep -q 'enum(Status::Active' && \
+  pass "capture: backed enum shown with case + value" || \
+  fail "capture: backed enum not captured properly"
+printf '%s\n' "$capture_log" | grep -q 'enum(Tier::Pro)' && \
+  pass "capture: pure enum shown without trailing '='" || \
+  fail "capture: pure enum format wrong"
+printf '%s\n' "$capture_log" | grep -q 'recursion ↻' && \
+  pass "capture: cycle detection emits back-ref" || \
+  fail "capture: no cycle marker"
+printf '%s\n' "$capture_log" | grep -q '<lazy>' && \
+  pass "capture: __get-having object tagged <lazy>" || \
+  fail "capture: lazy proxy not detected"
+printf '%s\n' "$capture_log" | grep -q '+ro:id' && \
+  pass "capture: readonly property visibility marker present" || \
+  fail "capture: readonly visibility marker missing"
+
+# 11. Namespace filter cuts noise dramatically
+fixture="tests/integration/hello.php"
+unfiltered="$($PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
+filtered="$($PHP -d extension="$SO" -d periscope.namespace_filter='Greeter' "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
+[ "$filtered" -lt "$unfiltered" ] && \
+  pass "namespace_filter cuts observed calls ($unfiltered -> $filtered)" || \
+  fail "namespace_filter did not reduce calls (still $filtered)"
+
+# 12. Kill switch silences everything
+killed="$(PERISCOPE_DISABLE=1 $PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
+[ "$killed" = "0" ] && \
+  pass "PERISCOPE_DISABLE=1 produces zero observation lines" || \
+  fail "kill switch leaked $killed observations"
+
+echo ""
 echo "All smoke tests passed."
