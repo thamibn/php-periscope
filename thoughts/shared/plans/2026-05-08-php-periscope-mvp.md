@@ -466,7 +466,9 @@ For every observable event type, the UI also surfaces aggregate totals over the 
 - **Mail sent**: count by recipient domain
 - **Notifications sent**: count by channel
 - **Memory**: peak resident, peak per-frame
-- **Time**: total request duration, top 10 slowest frames
+- **Time**: total request duration (DebugBar's headline number), top 10 slowest frames, time-to-first-byte
+- **Request size**: incoming body bytes (`Request.totalBodyBytes`), upload count + sizes (`Request.files`)
+- **Response size**: outgoing body bytes (`Response.totalBodyBytes`), final HTTP status (`Response.statusCode`)
 
 These are derived in the daemon (Phase 6+) by summing/grouping the per-event data already in the trace. No new C-extension work — the watchers emit individual events; the daemon's reader aggregates on-demand for the UI and `/api/traces/{id}/summary`. Same data also feeds the AI insights endpoint.
 
