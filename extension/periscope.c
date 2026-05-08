@@ -365,11 +365,40 @@ static PHP_MSHUTDOWN_FUNCTION(periscope)
     return SUCCESS;
 }
 
+/* Per-request `X-Periscope-Mode` header lets the UI flip modes without
+ * editing php.ini. Values:
+ *   off       — disable all capture for this request (kill switch)
+ *   full      — force full capture (overrides INI/env if disabled there)
+ *   anything else — leave INI/env settings untouched
+ *
+ * The UI's "Re-run with periscope off" button uses this. */
+static void periscope_apply_mode_header(void)
+{
+    zval *server = &PG(http_globals)[TRACK_VARS_SERVER];
+    if (Z_TYPE_P(server) != IS_ARRAY) {
+        return;
+    }
+    zval *hdr = zend_hash_str_find(
+        Z_ARRVAL_P(server),
+        "HTTP_X_PERISCOPE_MODE", sizeof("HTTP_X_PERISCOPE_MODE") - 1);
+    if (hdr == NULL || Z_TYPE_P(hdr) != IS_STRING) {
+        return;
+    }
+    const char *v = Z_STRVAL_P(hdr);
+    if (strcasecmp(v, "off") == 0 || strcasecmp(v, "kill") == 0) {
+        PERISCOPE_G(disabled) = true;
+    } else if (strcasecmp(v, "full") == 0 || strcasecmp(v, "on") == 0) {
+        PERISCOPE_G(disabled) = false;
+    }
+}
+
 static PHP_RINIT_FUNCTION(periscope)
 {
     PERISCOPE_G(depth) = 0;
     PERISCOPE_G(next_frame_id) = 0;
     PERISCOPE_G(request_start_us) = periscope_now_us_monotonic();
+
+    periscope_apply_mode_header();
 
     if (PERISCOPE_G(scratch).s == NULL) {
         smart_str_alloc(&PERISCOPE_G(scratch), 4096, 0);
