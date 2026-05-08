@@ -1,8 +1,8 @@
 # php-periscope
 
-> See into your PHP request.
+> See into your Laravel request.
 
-A live observability + time-travel debugger for PHP and Laravel. Pause any request, see every variable, query, log, job, event, cache hit, Redis command, and HTTP call that led to that line — and scrub backward in time.
+A live observability + time-travel debugger built **for Laravel**. Pause any request, see every variable, query, log, job, event, cache hit, Redis command, and HTTP call that led to that line — and scrub backward in time. **Xdebug-tier debugging plus Telescope-tier observability, in one live UI, with an AI co-pilot.**
 
 **Status:** 🚧 Phases 1–4 landed. C extension observes every PHP function call with full variable capture; Cap'n Proto traces written to disk; Rust daemon reads them. See [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`](thoughts/shared/plans/2026-05-08-php-periscope-mvp.md) for the full plan and [`docs/POSITIONING.md`](docs/POSITIONING.md) for the head-to-head benchmark vs Xdebug (we're 3.3× faster inactive, 4.1× faster in trace mode).
 
@@ -27,10 +27,11 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full picture.
 
 ## v1 scope (MVP)
 
+- **Laravel only** (latest 2 LTS — 11.x and 12.x at launch)
 - PHP 8.3 only • macOS + Linux only • Local development only
 - Function-boundary recording (not opcode-level) for performance
-- VSCode + browser UI as primary interfaces
-- Laravel first-class, Symfony / WordPress best-effort
+- VSCode + PhpStorm + browser UI as primary interfaces
+- The underlying C extension is framework-agnostic, but in v1 we test, market, and support **only** Laravel. Symfony / CodeIgniter / WordPress / plain PHP are post-v1 if there's demand.
 
 See [`docs/SCOPE.md`](docs/SCOPE.md) for the full in/out list.
 

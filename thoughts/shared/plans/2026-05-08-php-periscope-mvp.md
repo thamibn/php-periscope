@@ -2,9 +2,11 @@
 
 **Date:** 2026-05-08 (last updated 2026-05-08 with AI-native + retention additions)
 **Author:** Thamsanca Ntuli (with Claude Code)
-**Project:** php-periscope — live observability + time-travel debugger for PHP/Laravel
+**Project:** php-periscope — live observability + time-travel debugger **for Laravel** (v1)
 **Status:** v1 in progress — Phases 1–4 landed, Phase 5 next
-**Tagline:** *See into your PHP request — your AI co-pilot does too.*
+**Tagline:** *See into your Laravel request — your AI co-pilot does too.*
+
+**v1 audience scope:** Laravel only. The C extension is framework-agnostic by design (correct engineering for a Zend Observer hook), but we test, market, and support **only** Laravel in v1. Other frameworks ship as separate Composer packages after v1 (`thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`) once Laravel adoption proves the model. v1 narrowness is a deliberate scope cut.
 
 ## Cross-cutting requirements (added during implementation)
 
@@ -20,9 +22,9 @@ Listed here so the full set is visible at a glance.
 
 4. **Trace retention** — `periscope.max_traces` (default 100) + `periscope.max_trace_age_seconds` (default 86400) sweep at RINIT. Manual `make trace-clean`. Documented as ephemeral with privacy warning. (Phase 4 — done.)
 
-5. **Adaptive UI** — only render panels that have non-zero events in the current trace. Plain PHP project = Source/Variables/Stack/Timeline/Logs only. Laravel = all panels light up. Symfony adapter (later) emits same event types so UI stays uniform. (Phase 9.)
+5. **Adaptive UI** — only render panels that have non-zero events in the current trace. Out of the box on Laravel: Source / Variables / Stack / Timeline / Queries / Logs / Jobs / Events / Cache / Redis / HTTP / Mail panels all light up. (Phase 9.)
 
-6. **Framework-agnostic core, opt-in adapters** — C extension never references Laravel/Symfony/WordPress. Per-framework Composer packages handle detection via service-provider auto-discovery. v1 ships only Laravel adapter; others are post-v1.
+6. **Laravel-only in v1; other frameworks as separate packages later** — C extension is framework-agnostic internally (correct engineering, allows cheap v1.1+ growth), but v1 ships ONLY `thamibn/periscope-laravel`. We do not test, market, or support Symfony/WordPress/CodeIgniter/plain PHP in v1. Future packages: `thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter` — each follows the same pattern (Composer package, framework auto-discovery, forwards events to the same C extension).
 
 7. **No end-user toolchain** — distribution ships precompiled bottles via brew/PECL. End users never need Rust, C++, capnp, or a compiler. Maintainers + CI handle the build. (Phase 11.)
 
@@ -99,7 +101,7 @@ After MVP ship (~3–4 months part-time / 6–8 weeks full-time AI-assisted):
 **Verification:**
 
 - End-to-end smoke test: a sample Laravel app in `examples/laravel-demo/` that, when run with periscope attached, hits a known route, pauses at a known breakpoint, shows expected query count and log output in the UI, and successfully scrubs backward.
-- Real-world test: clone Laravel, Symfony, or WordPress; run their test suite with periscope loaded; no test-suite regressions, no segfaults under AddressSanitizer.
+- Real-world test: clone the Laravel skeleton + the maintainer's `property-core-backend` Laravel app; run their test suites with periscope loaded; no regressions, no segfaults under AddressSanitizer.
 
 ---
 
@@ -116,7 +118,7 @@ Explicitly out of scope for the MVP. Each is a deliberate cut to keep the projec
 - **Async runtimes** — Fibers, Swoole, ReactPHP, Frankenphp, Octane. Single-request-thread model only.
 - **PhpStorm-specific features** — PhpStorm supports DAP via plugin but its UX is rougher; VSCode is the priority.
 - **OpenTelemetry export** — debug events as spans. Deferred.
-- **Multi-language framework adapters** — Symfony, WordPress, raw PHP only get basic support; Laravel gets first-class.
+- **Other PHP frameworks** — Symfony, WordPress, CodeIgniter, plain PHP. Out of v1 scope entirely. Each ships as its own Composer package after v1 (`thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`) once Laravel adoption proves the model.
 - **Mobile / cloud UI** — local browser UI only.
 - **Authentication / multi-user** — `localhost:9999` is single-user, no auth.
 - **Custom non-DAP protocol** — DAP is the only IDE protocol in v1 (custom protocol deferred to v2 if/when needed for time-travel features DAP can't express well).
@@ -735,18 +737,15 @@ Find what breaks before users do. Run periscope against three large open-source 
 
 #### 1. Test harnesses
 
-**File**: `tests/real-world/laravel/`
+**File**: `tests/real-world/laravel-skeleton/`
 - Pull `laravel/laravel` skeleton into a git submodule
 - Run its test suite with the extension loaded
 - Run a sample request through the periscope UI
 
-**File**: `tests/real-world/symfony/`
-- Pull `symfony/demo` skeleton
-- Same drill
-
-**File**: `tests/real-world/wordpress/`
-- Pull a fixed-version WordPress
-- Run a homepage request
+**File**: `tests/real-world/property-core-backend/` (gated submodule, maintainer-only)
+- The maintainer's real production-grade Laravel app — listings, agencies, jobs, queues, the full surface
+- Run a representative set of routes; verify no regressions, all observability events surface as expected
+- Used as the integration-truth signal before each release
 
 #### 2. Bug-fix cycle
 
@@ -889,7 +888,7 @@ Ship to public beta. Set up the GitHub issues triage rituals so the project does
 - Laravel News submission
 - r/PHP post
 - Hacker News submission (timed for Tuesday morning ET)
-- Direct outreach to `php-fig`, `Laravel`, `Symfony` Discord/Slack channels
+- Direct outreach to Laravel Discord, Laracasts community, Laravel News editor
 
 #### 6. Feedback funnel
 
@@ -963,7 +962,7 @@ After Tracks A, B, C merge:
 ### Integration tests
 
 - End-to-end: `tests/integration/e2e.sh` spawns the daemon, runs a fixture PHP script, drives DAP commands via a mock client, asserts on the resulting trace and DAP responses
-- Real-world (Phase 10): full Laravel/Symfony/WordPress test suites with periscope loaded
+- Real-world (Phase 10): Laravel skeleton + maintainer's `property-core-backend` test suites with periscope loaded
 
 ### Memory safety tests
 
@@ -1076,21 +1075,31 @@ End of Week 2: extension loads, observes every userland function call, captures 
 
 This appendix consolidates everything from the project's persistent memory (`/.claude/projects/.../memory/*.md`) so the plan is the single source of truth. Each subsection explains the rule, the reason, and where in the phase plan it applies.
 
-### A.1 — Framework detection is the adapter's job, not the C extension's
+### A.1 — Laravel-only in v1, with the architecture set up for future framework packages
 
-**Rule:** The C extension stays framework-agnostic. Per-framework hooks (Laravel queries, Symfony events, WordPress actions) live in opt-in Composer adapter packages.
+**Rule (v1):** ship `thamibn/periscope-laravel` and nothing else. Test, market, and support **only** Laravel. Don't pursue Symfony / WordPress / CodeIgniter / plain PHP in v1.
 
-**Why:** Loading Laravel-aware hooks into a Symfony or CodeIgniter project would crash or produce noise. Also enforced by CLAUDE.md invariant #8 — *"No Laravel-version-specific code in `extension/`."*
+**Architectural rule (timeless):** the C extension stays framework-agnostic — no Laravel-specific code at the engine layer (CLAUDE.md invariant #8). Framework-specific hooks live in Composer adapter packages. This is correct engineering regardless of how many frameworks we ultimately support.
+
+**Why this combination:**
+- Scope discipline — v1 ships something coherent and excellent, not three half-finished adapters.
+- Architecture stays clean — when we eventually add `thamibn/periscope-symfony` etc., zero rework on the extension or daemon.
+- Laravel community is concentrated and targetable (Laravel News, Laracasts, Discord, Twitter); seeding v1 is tractable.
 
 **Layers:**
 
-- Layer 1 — **C extension** (`extension/`): observes every userland function call via Zend Observer API. No framework checks. Same `.so` works on Laravel, Symfony, CodeIgniter, WordPress, Magento, plain PHP.
-- Layer 2 — **Composer adapter packages** (`laravel-adapter/` first, others later): detect their host framework by *being installed in it*. Laravel adapter registers a `PeriscopeServiceProvider` that only fires when Laravel boots its container. A WordPress adapter would hook `plugins_loaded`. Each adapter is responsible for its own "am I in the right project?" detection.
-- Layer 3 — **Daemon + UI**: framework-agnostic. They render whatever events arrive in the trace.
+- Layer 1 — **C extension** (`extension/`): framework-agnostic, observes every userland function call via Zend Observer API.
+- Layer 2 — **Laravel adapter** (`laravel-adapter/`, the only adapter in v1): registers a `PeriscopeServiceProvider` that fires when Laravel boots its container. Hooks `DB::listen`, log channels, queue events, cache events, mail events, Redis events, HTTP client middleware, route resolution, auth.
+- Layer 3 — **Daemon + UI**: render whatever events arrive in the trace; oblivious to which adapter produced them.
 
-**Result:** the user installs the C extension globally (one brew install), and per-project they `composer require` the adapter that matches their framework — or no adapter at all and still get raw function-call observation. v1 only ships the Laravel adapter.
+**Future packages (post-v1, separate repos / Composer packages, same architecture):**
+- `thamibn/periscope-symfony` — hooks Symfony Profiler events
+- `thamibn/periscope-wordpress` — hooks `pre_get_posts`, `$wpdb`, the HTTP API, REST API
+- `thamibn/periscope-codeigniter` — hooks CI4 events, Query Builder, validation, sessions
 
-**Do not** add a `periscope.framework=laravel|symfony|...` INI knob in the C extension to gate behaviour.
+Timing depends on community demand; not committed for v1.
+
+**Do not** add a `periscope.framework=laravel|symfony|...` INI knob to the C extension to gate behaviour. Detection is solved by Composer + service provider auto-discovery.
 
 ### A.2 — Adaptive UI: only render panels for event types in the trace
 
@@ -1103,22 +1112,22 @@ This appendix consolidates everything from the project's persistent memory (`/.c
 - If the trace has zero `mail_sent` events → no Mail panel.
 - Same for cache, redis, http, queue, events.
 - The minimum-always-shown panels: Source, Variables/Scope, Call Stack, Timeline, Logs (every PHP project has logs).
-- Plain-PHP / no-framework session → only the minimum panels appear; UI stays clean.
-- Laravel session with the adapter → all relevant panels light up automatically.
+- Laravel session with the adapter → all panels light up automatically.
 
-The trace is the source of truth. Don't gate panel visibility on a `framework` field — gate it on `events.some(e => e.type === 'sql_query')`. That way a hand-rolled Symfony adapter that emits `sql_query` events gets the SQL panel for free.
+The trace is the source of truth. Don't gate panel visibility on a `framework` field — gate it on `events.some(e => e.type === 'sql_query')`. This also means future framework packages (post-v1) emit the same event types and get the same panels for free, no UI changes.
 
 User's framing: *"smart and adaptive — not cluttered with useless features the project does not benefit from."*
 
-### A.3 — Collection-shaped objects rendering (Laravel Collection, Doctrine, etc.)
+### A.3 — Laravel Collection rendering
 
-Phase 3 already captures them functionally — internal `$items` array is dumped as a normal private property: `object(Collection)#7 {-items: array(N) [...]}`. The data is all there.
+Phase 3 already captures them functionally — `Illuminate\Support\Collection`'s internal `$items` array is dumped as a normal private property: `object(Illuminate\Support\Collection)#7 {-items: array(N) [...]}`. The data is all there.
 
-Cosmetic improvements to render them more naturally are framework-adapter / UI work, not C-extension work:
+Phase 5 adds cosmetic polish:
 
-- **Laravel adapter (Phase 5)**: emit a hint event/attribute marking instances of `Illuminate\Support\Collection`, `Illuminate\Database\Eloquent\Collection`, `LazyCollection`.
-- **UI (Phase 9b)**: when a captured object's class is in a known "collection" allowlist (Laravel, Doctrine, generators), render as `Collection(N) [items...]` instead of `object(Collection)#X {-items: [...]}`.
-- **Doctrine `PersistentCollection`**: detect lazy/uninitialized state via the existing `<lazy>` path (already works because Doctrine collections use `__get` for lazy-load).
+- **Laravel adapter**: emit a hint marking instances of `Illuminate\Support\Collection`, `Illuminate\Database\Eloquent\Collection`, `LazyCollection`.
+- **UI (Phase 9b)**: when a captured object's class is in this Laravel collection allowlist, render as `Collection(N) [items...]` instead of `object(Collection)#X {-items: [...]}`. Same data, cleaner presentation.
+
+Eloquent models with relationships also benefit from the existing `<lazy>` path — relations not yet loaded show as `<lazy>` instead of triggering a database round-trip during inspection.
 
 ### A.4 — Trace MUST capture full HTTP request envelope (URL, headers, cookies, body, session, response)
 

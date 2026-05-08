@@ -1,27 +1,32 @@
-# Positioning — Why periscope, and how it differs from Xdebug, Telescope, DebugBar
+# Positioning — Why periscope, and how it differs from Xdebug, Telescope, DebugBar (Laravel)
 
 This is the messaging foundation for the README, the docs site, the launch blog post, and any conference/podcast talking points. Treat it as the canonical pitch.
+
+**v1 audience: Laravel developers.** We don't market, test, or support Symfony / WordPress / CodeIgniter / plain PHP in v1. That's a deliberate scope cut, not an oversight.
+
+The underlying C extension happens to be framework-agnostic (that's correct engineering for a Zend Observer hook). **Other frameworks ship later, as separate Composer packages**: `thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`, etc. Each will follow the same pattern as the Laravel adapter — auto-discover on its host framework, hook the right events, forward to the same C extension. v1 ships only `thamibn/periscope-laravel`; the rest land in v1.1, v1.2, … as the community signals demand.
 
 ---
 
 ## One-liner
 
-> **Xdebug + Telescope + DebugBar merged into one live UI, plus time-travel.**
-> Set a breakpoint, see your variables *and* every query / log / job / cache hit / HTTP call so far in the same screen, and scrub backward through time to see what state looked like 200ms ago. One install, one tab, no waiting for the request to finish.
+> **Xdebug + Telescope + DebugBar + Clockwork merged into one live UI, plus time-travel, plus an AI co-pilot — built for Laravel.**
+> Set a breakpoint, see your variables *and* every Eloquent query / log / job / cache hit / HTTP call so far in the same screen, and scrub backward through time to see what state looked like 200ms ago. One install, one tab, no waiting for the request to finish.
 
 ---
 
-## The three-tool problem
+## The four-tool problem (Laravel today)
 
-Today, a Laravel/PHP developer who wants to understand a request uses **three separate tools** — each with a different UI, different lifecycle, and a gap the others fill:
+Today, a Laravel developer who wants to understand a request uses **four separate tools** — each with a different UI, different lifecycle, and a gap the others fill:
 
 | Tool | What it does | Limitation |
 |---|---|---|
 | **Xdebug** | Step debugging, variables, breakpoints | No observability; no time-travel; setup is painful |
-| **Telescope** | Queries, logs, jobs, events, cache, mail, requests | Post-mortem only — request must finish first |
-| **DebugBar** | Same data, live | Footer-only UI; no breakpoints; no time-travel |
+| **Laravel Telescope** | Queries, logs, jobs, events, cache, mail, requests | Post-mortem only — request must finish first |
+| **Laravel DebugBar** | Same data, live | Footer-only UI; no breakpoints; no time-travel |
+| **Clockwork** | Same data, devtools panel | Browser-extension only; no breakpoints; no time-travel |
 
-php-periscope merges all three into one live, interactive UI built on a modern stack (Zend Observer API, Rust, DAP, browser-native UI) with no legacy DBGp, no IDE lock-in, and time-travel as a first-class feature.
+php-periscope merges all four into one live, interactive UI built on a modern stack (Zend Observer API, Rust, DAP, browser-native UI) with no legacy DBGp, no IDE lock-in, time-travel as a first-class feature, and an AI co-pilot that reads the trace and recommends fixes.
 
 ---
 
@@ -114,39 +119,40 @@ The differentiation is the **combination**: paused + observability + timeline. T
 
 ---
 
-## What works on every PHP project (framework-agnostic)
+## What v1 ships (Laravel-only)
 
-The C extension hooks at the Zend engine level — the engine doesn't care what framework you're running. Same `.so`, same observation, on:
+The Laravel adapter (`thamibn/periscope-laravel`) hooks every Laravel observability event and forwards it to the trace:
 
-- Laravel ✓
-- Symfony ✓
-- CodeIgniter (3 + 4) ✓
-- WordPress ✓
-- Drupal ✓
-- Magento ✓
-- Plain PHP / no framework ✓
+- Every Eloquent / DB query with bindings, connection, and timing
+- Every `Log::info/warn/error` line with channel and context
+- Every dispatched job (queued or sync) with payload
+- Every fired event with payload
+- Every cache hit / miss / write / forget with key + store
+- Every Redis command
+- Every outbound `Http::*` call with method, URL, status, duration
+- Every sent `Mail::*` with recipient and mailable
+- N+1 detection on Eloquent (when same SQL pattern fires N times in one frame)
+- Resolved route name + controller@method + route params
+- Authenticated user (`Auth::user()`)
+- Session contents (with redaction)
 
-What you get on every PHP project from Phase 2 onwards:
+Plus everything from the C extension (which works on any PHP code, but in v1 we only test against Laravel):
 
 - Every function / method / closure call entered + exited
 - All argument values + declared types + parameter names
 - Return values + declared return types
-- Wall-clock timing per call
-- Stack depth
-- (Phase 3+) Full variable snapshots, scrubbable through time
+- Wall-clock timing per call + stack depth
+- Full variable snapshots (with depth/size caps), scrubbable through time
 
-## Where the framework adapter adds value
+## Other frameworks (later)
 
-The Laravel-specific Composer adapter (`thamibn/periscope-laravel`) layers richer events on top:
+Symfony, WordPress, CodeIgniter, plain PHP — each gets its own Composer package after v1. Same pattern as the Laravel adapter, same C extension underneath, same UI:
 
-- "this was a `DB::select` query" with bindings
-- "this was a `Log::info` line" with channel + context
-- "this was a queued job" with payload
-- N+1 detection on Eloquent
-- Cache hit/miss with key
-- Outbound HTTP via Laravel's HTTP client
+- `thamibn/periscope-symfony` — hooks the Symfony Profiler events (Doctrine queries, mailer, security, messenger).
+- `thamibn/periscope-wordpress` — hooks `pre_get_posts`, `wp_loaded`, `$wpdb` queries, the HTTP API, REST API endpoints.
+- `thamibn/periscope-codeigniter` — hooks CI4's events, Query Builder, validation, sessions.
 
-Symfony / WordPress / CodeIgniter equivalents follow the same opt-in adapter pattern (post-v1 work).
+Timing on those depends on community demand. v1 stays focused on Laravel so we ship something coherent rather than spreading thin.
 
 ## Adaptive UI
 

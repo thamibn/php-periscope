@@ -4,7 +4,7 @@ Guidance for Claude Code working in the php-periscope repository.
 
 ## Project Overview
 
-**php-periscope** is a live observability + time-travel debugger for PHP and Laravel. It pauses any PHP request, shows the developer every variable, SQL query, log line, dispatched job, fired event, cache hit, Redis command, and outbound HTTP call that occurred up to the paused line — and lets them scrub backward in time.
+**php-periscope** is a live observability + time-travel debugger **built for Laravel** (v1 ships Laravel-only — see plan §A.1). It pauses any Laravel request, shows the developer every variable, SQL query, log line, dispatched job, fired event, cache hit, Redis command, and outbound HTTP call that occurred up to the paused line — and lets them scrub backward in time. The C extension is framework-agnostic by design so future packages (`thamibn/periscope-symfony`, `thamibn/periscope-wordpress`, `thamibn/periscope-codeigniter`) can ship post-v1, but in v1 we test, market, and support **only** Laravel.
 
 This is a greenfield project. The full plan lives at `thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`. Always read that plan before starting any implementation work.
 
@@ -72,7 +72,8 @@ make ci
 5. **Function-boundary recording, not opcode-level.** v1 captures variables only at function entry/exit. Do not add per-opcode hooks.
 6. **PHP 8.3 only for v1.** Do not add 8.1/8.2/8.4 compat in v1; that's a v1.1 sprint.
 7. **macOS + Linux only.** Skip Windows code paths.
-8. **No Laravel-version-specific code in `extension/`.** Framework details belong in `laravel-adapter/` (Composer package), not the C layer.
+8. **No Laravel-version-specific code in `extension/`.** Framework details belong in `laravel-adapter/` (Composer package), not the C layer. (The extension stays framework-agnostic; only the Composer adapter is Laravel-specific.)
+9. **Laravel-only in v1.** Don't add Symfony/WordPress/CodeIgniter code paths, tests, or doc claims. Other frameworks ship as separate Composer packages post-v1.
 
 ## Git Commit Rules
 
@@ -91,11 +92,11 @@ make ci
 
 See `docs/SCOPE.md`. Highlights of what NOT to build:
 
+- **Symfony / WordPress / CodeIgniter / plain PHP support** — v1.1+, separate Composer packages
 - Production debugging (sampling, snapshot breakpoints) — v2
 - Async runtime support (Fibers, Swoole, Frankenphp, Octane) — v2+
 - PhpStorm-specific UX polish — v2
 - OpenTelemetry export — v2
-- AI assist panel — v2
 - Variable mutation tracking — v2
 - Closures/references/circular refs perfect handling — v2
 - Windows native — out of scope permanently (use WSL)
