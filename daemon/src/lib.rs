@@ -7,6 +7,7 @@ pub mod api;
 pub mod dap;
 pub mod ext_link;
 pub mod insights;
+pub mod replay;
 pub mod summary;
 pub mod trace;
 pub mod trace_view;

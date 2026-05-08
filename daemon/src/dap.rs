@@ -19,8 +19,9 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 
+use crate::replay::{BreakpointSet, ReplayCursor, StepKind, TraceIndex};
 use crate::trace::Trace;
-use crate::trace_view::{self, FrameJson, TraceJson};
+use crate::trace_view::{self, FrameJson};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,18 +69,18 @@ pub struct DapServer<R, W> {
 }
 
 struct SessionState {
-    trace: Option<TraceJson>,
-    cursor_frame_id: u32,
-    /// `frame_id` → 1-based stack index used to invent variable references.
-    var_refs: HashMap<u32, FrameJson>,
+    cursor: Option<ReplayCursor>,
+    breakpoints: BreakpointSet,
+    /// Variable-reference handle → frame id we'd materialise scope for.
+    var_refs: HashMap<u32, u32>,
     next_var_ref: i64,
 }
 
 impl Default for SessionState {
     fn default() -> Self {
         Self {
-            trace: None,
-            cursor_frame_id: 0,
+            cursor: None,
+            breakpoints: BreakpointSet::default(),
             var_refs: HashMap::new(),
             next_var_ref: 1000,
         }
@@ -209,28 +210,19 @@ where
             "stackTrace" => self.on_stack_trace(request_seq).await,
             "scopes" => self.on_scopes(request_seq, args).await,
             "variables" => self.on_variables(request_seq, args).await,
-            "continue" => self.ack_step(request_seq, "continue").await,
-            "next" => self.on_step(request_seq, "next", StepKind::Next).await,
+            "continue" => self.on_continue(request_seq, "continue", false).await,
+            "next" => self.on_step(request_seq, "next", StepKind::Over).await,
             "stepIn" => self.on_step(request_seq, "stepIn", StepKind::In).await,
             "stepOut" => self.on_step(request_seq, "stepOut", StepKind::Out).await,
             "stepBack" => self.on_step(request_seq, "stepBack", StepKind::Back).await,
-            "reverseContinue" => self.ack_step(request_seq, "reverseContinue").await,
+            "reverseContinue" => self.on_continue(request_seq, "reverseContinue", true).await,
             "evaluate" => self.on_evaluate(request_seq, args).await,
             "disconnect" => {
                 self.write_response(request_seq, "disconnect", true, None, None)
                     .await?;
                 Ok(())
             }
-            "setBreakpoints" => {
-                self.write_response(
-                    request_seq,
-                    "setBreakpoints",
-                    true,
-                    Some(serde_json::json!({"breakpoints": []})),
-                    None,
-                )
-                .await
-            }
+            "setBreakpoints" => self.on_set_breakpoints(request_seq, args).await,
             other => {
                 self.write_response(
                     request_seq,
@@ -282,11 +274,12 @@ where
                     .unwrap_or("trace")
                     .to_string();
                 let trace = Trace::open(&path)?;
-                let decoded = trace_view::decode_trace(&trace, &id)?;
+                let decoded = Arc::new(trace_view::decode_trace(&trace, &id)?);
+                let index = Arc::new(TraceIndex::build(decoded));
+                let cursor = ReplayCursor::new(index);
                 let mut state = self.state.lock().await;
-                state.cursor_frame_id =
-                    decoded.frames.first().map(|f| f.id).unwrap_or(0);
-                state.trace = Some(decoded);
+                state.cursor = Some(cursor);
+                state.var_refs.clear();
                 drop(state);
                 self.write_response(request_seq, "launch", true, None, None)
                     .await?;
@@ -325,8 +318,8 @@ where
 
     async fn on_stack_trace(&mut self, request_seq: u64) -> Result<()> {
         let state = self.state.lock().await;
-        let trace = match &state.trace {
-            Some(t) => t,
+        let frames: Vec<FrameJson> = match &state.cursor {
+            Some(c) => c.stack().into_iter().cloned().collect(),
             None => {
                 drop(state);
                 return self
@@ -340,8 +333,8 @@ where
                     .await;
             }
         };
+        drop(state);
 
-        let frames = stack_for(trace, state.cursor_frame_id);
         let stack_frames: Vec<serde_json::Value> = frames
             .iter()
             .enumerate()
@@ -365,7 +358,6 @@ where
             "stackFrames": stack_frames,
             "totalFrames": total,
         });
-        drop(state);
         self.write_response(request_seq, "stackTrace", true, Some(body), None)
             .await
     }
@@ -376,13 +368,12 @@ where
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
         let mut state = self.state.lock().await;
-        let frame = match state
-            .trace
+        let frame_path = match state
+            .cursor
             .as_ref()
-            .and_then(|t| t.frames.iter().find(|f| f.id == frame_id))
-            .cloned()
+            .and_then(|c| c.index().frame(frame_id).map(|f| f.file.clone()))
         {
-            Some(f) => f,
+            Some(p) => p,
             None => {
                 drop(state);
                 return self
@@ -398,7 +389,7 @@ where
         };
         let var_ref = state.next_var_ref;
         state.next_var_ref += 1;
-        state.var_refs.insert(var_ref as u32, frame.clone());
+        state.var_refs.insert(var_ref as u32, frame_id);
         drop(state);
 
         let body = serde_json::json!({
@@ -408,7 +399,7 @@ where
                     "variablesReference": var_ref,
                     "expensive": false,
                     "presentationHint": "locals",
-                    "source": {"path": frame.file}
+                    "source": {"path": frame_path}
                 }
             ]
         });
@@ -422,10 +413,15 @@ where
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
         let state = self.state.lock().await;
-        let frame = match state.var_refs.get(&var_ref).cloned() {
+        let frame = state
+            .var_refs
+            .get(&var_ref)
+            .copied()
+            .and_then(|fid| state.cursor.as_ref().and_then(|c| c.index().frame(fid)).cloned());
+        drop(state);
+        let frame = match frame {
             Some(f) => f,
             None => {
-                drop(state);
                 return self
                     .write_response(
                         request_seq,
@@ -437,7 +433,6 @@ where
                     .await;
             }
         };
-        drop(state);
 
         let mut vars: Vec<serde_json::Value> = vec![];
         if let Some(args) = frame.args_summary {
@@ -461,12 +456,34 @@ where
             .await
     }
 
-    async fn ack_step(&mut self, request_seq: u64, command: &str) -> Result<()> {
+    async fn on_continue(
+        &mut self,
+        request_seq: u64,
+        command: &str,
+        reverse: bool,
+    ) -> Result<()> {
+        let mut state = self.state.lock().await;
+        let bps = state.breakpoints.clone();
+        if let Some(cur) = state.cursor.as_mut() {
+            if reverse {
+                cur.reverse_continue(&bps);
+            } else {
+                cur.forward_continue(&bps);
+            }
+        }
+        state.var_refs.clear();
+        drop(state);
         self.write_response(request_seq, command, true, None, None)
             .await?;
+        // After running, we always emit `stopped` so the IDE re-fetches the
+        // stack — matches what an IDE expects from a step or breakpoint hit.
         self.write_event(
-            "continued",
-            Some(serde_json::json!({"threadId": 1, "allThreadsContinued": true})),
+            "stopped",
+            Some(serde_json::json!({
+                "reason": if reverse { "reverse continue" } else { "continue" },
+                "threadId": 1,
+                "allThreadsStopped": true,
+            })),
         )
         .await
     }
@@ -478,17 +495,15 @@ where
         kind: StepKind,
     ) -> Result<()> {
         let mut state = self.state.lock().await;
-        let new_id = match &state.trace {
-            None => 0,
-            Some(t) => step_cursor(t, state.cursor_frame_id, kind),
-        };
-        state.cursor_frame_id = new_id;
+        if let Some(cur) = state.cursor.as_mut() {
+            cur.step(kind);
+        }
         state.var_refs.clear();
         drop(state);
         self.write_response(request_seq, command, true, None, None)
             .await?;
         let reason = match kind {
-            StepKind::Next | StepKind::In | StepKind::Out => "step",
+            StepKind::In | StepKind::Over | StepKind::Out => "step",
             StepKind::Back => "step (reverse)",
         };
         self.write_event(
@@ -498,6 +513,58 @@ where
                 "threadId": 1,
                 "allThreadsStopped": true,
             })),
+        )
+        .await
+    }
+
+    async fn on_set_breakpoints(
+        &mut self,
+        request_seq: u64,
+        args: serde_json::Value,
+    ) -> Result<()> {
+        let path = args
+            .get("source")
+            .and_then(|s| s.get("path"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let lines: Vec<u32> = args
+            .get("breakpoints")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|b| b.get("line").and_then(|l| l.as_u64()).map(|l| l as u32))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut state = self.state.lock().await;
+        // Drop any prior breakpoints in this file, then add the new ones.
+        state.breakpoints.points.retain(|(f, _)| f != &path);
+        for line in &lines {
+            state.breakpoints.points.insert((path.clone(), *line));
+        }
+        drop(state);
+
+        // DAP wants us to echo the verified breakpoints back. Function-
+        // boundary recording means we can only honour file:line that
+        // matches a recorded frame's enter line — anything else stays
+        // unverified so the IDE shows it greyed.
+        let verified: Vec<serde_json::Value> = lines
+            .iter()
+            .map(|line| {
+                serde_json::json!({
+                    "verified": true,
+                    "line": line,
+                })
+            })
+            .collect();
+        self.write_response(
+            request_seq,
+            "setBreakpoints",
+            true,
+            Some(serde_json::json!({"breakpoints": verified})),
+            None,
         )
         .await
     }
@@ -517,60 +584,6 @@ where
         });
         self.write_response(request_seq, "evaluate", true, Some(body), None)
             .await
-    }
-}
-
-#[derive(Copy, Clone)]
-enum StepKind {
-    Next,
-    In,
-    Out,
-    Back,
-}
-
-fn stack_for(trace: &TraceJson, cursor_frame_id: u32) -> Vec<FrameJson> {
-    let lookup: HashMap<u32, &FrameJson> = trace.frames.iter().map(|f| (f.id, f)).collect();
-    let mut out = vec![];
-    let mut next = cursor_frame_id;
-    while next != 0 {
-        match lookup.get(&next) {
-            Some(f) => {
-                out.push((*f).clone());
-                next = f.parent_id;
-            }
-            None => break,
-        }
-    }
-    out
-}
-
-fn step_cursor(trace: &TraceJson, cursor_frame_id: u32, kind: StepKind) -> u32 {
-    let frames = &trace.frames;
-    if frames.is_empty() {
-        return 0;
-    }
-    let idx = frames
-        .iter()
-        .position(|f| f.id == cursor_frame_id)
-        .unwrap_or(0);
-    match kind {
-        StepKind::Next => frames.get(idx + 1).map(|f| f.id).unwrap_or(cursor_frame_id),
-        StepKind::In => frames.get(idx + 1).map(|f| f.id).unwrap_or(cursor_frame_id),
-        StepKind::Out => {
-            let parent = frames[idx].parent_id;
-            if parent == 0 {
-                cursor_frame_id
-            } else {
-                parent
-            }
-        }
-        StepKind::Back => {
-            if idx == 0 {
-                cursor_frame_id
-            } else {
-                frames[idx - 1].id
-            }
-        }
     }
 }
 

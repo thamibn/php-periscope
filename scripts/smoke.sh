@@ -189,6 +189,15 @@ if [ -x "$DAEMON_BIN" ]; then
       pass "/api/traces/{id}/timeline returns frame_enter entries" || \
       fail "/api/traces/{id}/timeline missing frame_enter"
 
+    # Phase 7: replay state at time T
+    ST=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/traces/$TRACE_ID/state?at=0" 2>/dev/null || true)
+    echo "$ST" | grep -q '"current_frame"' && \
+      pass "/api/traces/{id}/state?at= reconstructs frame at time" || \
+      fail "/api/traces/{id}/state?at= missing current_frame"
+    echo "$ST" | grep -q '"stack"' && \
+      pass "/api/traces/{id}/state returns call stack" || \
+      fail "/api/traces/{id}/state missing stack"
+
     # /api/file path traversal is blocked.
     FORBIDDEN_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
         "http://127.0.0.1:$SMOKE_PORT/api/file?path=/etc/passwd")

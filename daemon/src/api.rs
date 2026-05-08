@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::insights;
+use crate::replay::{self, TraceIndex};
 use crate::summary;
 use crate::trace::Trace;
 use crate::trace_view::{self, EventJson, FrameJson, TraceJson};
@@ -61,6 +62,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/traces/:id/insights", get(get_insights))
         .route("/api/traces/:id/summary", get(get_summary))
         .route("/api/traces/:id/events", get(list_events))
+        .route("/api/traces/:id/state", get(get_state))
         .route("/api/file", get(read_file))
         .route("/api/traces/:id/rerun", post(rerun_stub))
         .with_state(Arc::new(state))
@@ -490,6 +492,32 @@ async fn read_file(
 struct RerunStub {
     status: &'static str,
     detail: &'static str,
+}
+
+#[derive(Deserialize, Default)]
+struct StateQuery {
+    /// Time offset in microseconds from the trace start. Mutually exclusive
+    /// with `frame_id` — if both are present, `frame_id` wins.
+    #[serde(default)]
+    at: Option<u64>,
+    #[serde(default)]
+    frame_id: Option<u32>,
+}
+
+async fn get_state(
+    State(state): State<Arc<ApiState>>,
+    AxPath(id): AxPath<String>,
+    Query(q): Query<StateQuery>,
+) -> ApiResult<Json<replay::ReconstructedState>> {
+    let trace = Arc::new(open_trace(&state, &id)?);
+    let index = Arc::new(TraceIndex::build(trace));
+
+    let reconstructed = match (q.frame_id, q.at) {
+        (Some(fid), _) => replay::at_frame(index, fid),
+        (None, Some(t)) => replay::at_time(index, t),
+        (None, None) => replay::at_time(index, 0),
+    };
+    Ok(Json(reconstructed))
 }
 
 async fn rerun_stub(

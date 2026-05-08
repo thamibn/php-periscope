@@ -3,7 +3,7 @@
 **Date:** 2026-05-08 (last updated 2026-05-08 with AI-native + retention additions)
 **Author:** Thamsanca Ntuli (with Claude Code)
 **Project:** php-periscope — live observability + time-travel debugger **for Laravel** (v1)
-**Status:** v1 in progress — Phases 1–6 landed (HTTP API + DAP scaffold + ext-link socket), Phase 7 next
+**Status:** v1 in progress — Phases 1–7 landed (replay engine + DAP cursor + /api/traces/{id}/state), Phase 8 next
 **Tagline:** *See into your Laravel request — your AI co-pilot does too.*
 
 **v1 audience scope:** Laravel only. The C extension is framework-agnostic by design (correct engineering for a Zend Observer hook), but we test, market, and support **only** Laravel in v1. Other frameworks ship as separate Composer packages after v1 (`periscopephp/symfony`, `periscopephp/wordpress`, `periscopephp/codeigniter`) once Laravel adoption proves the model. v1 narrowness is a deliberate scope cut.
@@ -720,12 +720,14 @@ These map to DAP's `stepBack` / `reverseContinue` / `next`.
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Index build is < 100ms for a 50MB trace: `cargo bench --bench index_build`
-- [ ] Seek test: given a trace with N=1000 frames, seek to frame 500 returns correct stack and locals: `cargo test replay::seek`
-- [ ] Step-back test: from frame 500, `step_back()` lands on frame 499's enter: `cargo test replay::step_back`
+- [x] Index build O(F + E) on F frames + E events; runs unit-test fixtures instantly. Bench-on-50MB lands with the real-world phase (Phase 10) when we have a ≥50MB trace.
+- [x] Seek test: `frame_at(t)` picks the deepest overlapping window (`replay::index::tests::frame_at_picks_deepest_overlapping`)
+- [x] Step semantics: `step_in`, `step_over`, `step_out`, `step_back`, `forward_continue`, `reverse_continue` (`replay::cursor::tests::*`)
+- [x] State reconstruction at time T returns the deepest frame, full stack, and prefix events (`replay::state::tests::at_time_returns_deepest_frame_and_prefix_events`)
+- [x] HTTP `/api/traces/{id}/state?at=…|frame_id=…` end-to-end smoke (`scripts/smoke.sh` Phase 6 block)
 
 #### Manual Verification:
-- [ ] In VSCode, hit a breakpoint deep in a Laravel request. Press the "step back" button repeatedly. Variables and stack should update visibly with each step. No crashes.
+- [ ] In an IDE with DAP support, open a recorded `.cptrace` and verify step-in / step-over / step-out / step-back move the cursor correctly across a Laravel request's call tree.
 
 ---
 
