@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: phpize, php-config
+          coverage: none
+
+      - name: Build extension
+        run: make extension
+
+      - name: Run .phpt suite
+        run: make test
+
+      - name: Smoke tests
+        run: bash scripts/smoke.sh
+
+  asan:
+    name: build with AddressSanitizer (linux only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: phpize, php-config
+          coverage: none
+
+      - name: Build with -fsanitize=address
+        env:
+          CFLAGS: "-fsanitize=address -fno-omit-frame-pointer -g"
+          LDFLAGS: "-fsanitize=address"
+        run: make extension
+
+      - name: Smoke tests under ASan
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1"
+        run: bash scripts/smoke.sh
