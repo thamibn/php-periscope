@@ -957,7 +957,7 @@ These five are the *visible* surface. The deeper differentiators (time-travel sc
 #### Automated Verification (9b):
 - [x] `bun run build` produces an asset bundle < 200KB gzipped (current: ~26 KB total)
 - [x] `bun test` passes for component tests (`vitest` — syntax + format suites)
-- [ ] WebSocket integration test: open a session, drag the scrubber, confirm the daemon receives `cursor_set` messages
+- [x] WebSocket integration test: open a session, drag the scrubber, confirm the daemon receives `cursor_set` messages (`daemon/tests/ws_cursor.rs`)
 
 #### Manual Verification:
 - [ ] (9a) Show mockup to ≥ 3 PHP devs, gather feedback before building 9b

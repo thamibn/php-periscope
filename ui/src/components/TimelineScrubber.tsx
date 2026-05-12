@@ -1,10 +1,26 @@
-import { For, Show, createMemo } from "solid-js";
-import { cursorMicros, setCursorMicros, timeline, trace } from "../lib/store";
+import { For, Show, createEffect, createMemo, onCleanup } from "solid-js";
+import { cursorMicros, selectedTraceId, setCursorMicros, timeline, trace } from "../lib/store";
 import { fmtMs } from "../lib/format";
+import { publishCursorSet } from "../lib/api";
 
 export function TimelineScrubber() {
   const totalMicros = () => trace()?.meta.duration_micros ?? 1;
   const events = () => timeline() ?? [];
+
+  // Cursor-move fan-out to the daemon. We debounce to roughly the human
+  // perception threshold (~60ms) so a 60fps drag becomes ~16 sends/sec, not
+  // 60. The trailing edge is what matters for "where did the user land?".
+  let publishTimer: number | undefined;
+  createEffect(() => {
+    const id = selectedTraceId();
+    const at = cursorMicros();
+    if (!id) return;
+    if (publishTimer !== undefined) window.clearTimeout(publishTimer);
+    publishTimer = window.setTimeout(() => publishCursorSet(id, at), 60);
+  });
+  onCleanup(() => {
+    if (publishTimer !== undefined) window.clearTimeout(publishTimer);
+  });
 
   const positions = createMemo(() => {
     const total = Math.max(1, totalMicros());

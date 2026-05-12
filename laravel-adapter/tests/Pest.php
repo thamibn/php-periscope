@@ -20,6 +20,7 @@ function periscopeRecordingBridge(): ExtensionBridge
         public function isAvailable(): bool { return true; }
         public function recordEvent(string $type, array $payload, ?array $callSite = null): bool
         {
+            [$payload, $callSite] = $this->prepareEvent($payload, $callSite);
             $this->events[] = ['type' => $type, 'payload' => $payload, 'callSite' => $callSite];
             return true;
         }

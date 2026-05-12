@@ -131,9 +131,51 @@ fn opaque_or_empty(v: trace_capnp::value::Reader<'_>) -> Option<String> {
     }
 }
 
+/// Sentinel used by the C extension when it shipped headers/cookies/query/post
+/// as a single JSON blob (the v1 storage shape — see `periscope_trace.cc`'s
+/// "Headers/cookies/query/post are stored as JSON in v1" comment). When we see
+/// `[{name: "__json__", value: "{...}"}]` we expand it into proper key/value
+/// pairs so the UI doesn't render a single useless `__json__` row.
+const JSON_BAG_SENTINEL: &str = "__json__";
+
+fn expand_json_bag(value: &str) -> Option<Vec<HeaderJson>> {
+    let parsed: serde_json::Value = serde_json::from_str(value).ok()?;
+    // PHP's json_encode renders empty associative arrays as `[]` (it's a real
+    // ambiguity in PHP — empty array is both list and object). Treat both the
+    // empty list `[]` and any object as a flat key/value bag.
+    if parsed.as_array().is_some_and(|a| a.is_empty()) {
+        return Some(vec![]);
+    }
+    let obj = parsed.as_object()?;
+    let mut out = Vec::with_capacity(obj.len());
+    for (k, v) in obj {
+        let s = match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Null => String::new(),
+            _ => v.to_string(),
+        };
+        out.push(HeaderJson {
+            name: k.clone(),
+            value: s,
+            redacted: false,
+        });
+    }
+    Some(out)
+}
+
 fn read_headers(
     list: ::capnp::struct_list::Reader<'_, trace_capnp::header::Owned>,
 ) -> Vec<HeaderJson> {
+    if list.len() == 1 {
+        let only = list.get(0);
+        if let (Ok(name), Ok(value)) = (only.get_name(), only.get_value()) {
+            if name.to_str().ok() == Some(JSON_BAG_SENTINEL) {
+                if let Some(expanded) = value.to_str().ok().and_then(expand_json_bag) {
+                    return expanded;
+                }
+            }
+        }
+    }
     list.iter()
         .map(|h| HeaderJson {
             name: h.get_name().map(read_text).unwrap_or_default(),

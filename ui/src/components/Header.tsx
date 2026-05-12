@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import { trace, summary } from "../lib/store";
+import { selectedTraceId, setSelectedTraceId, trace, summary } from "../lib/store";
 import { fmtBytes, fmtMs, statusTone } from "../lib/format";
 import { daemonLabel, isStaticMode } from "../lib/api";
 
@@ -7,20 +7,35 @@ export function Header() {
   return (
     <header class="sticky top-0 z-30 border-b border-ink-700/60 bg-ink-950/80 backdrop-blur">
       <div class="flex items-center gap-3 px-4 py-2.5">
-        <div class="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setSelectedTraceId(null)}
+          class="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          title={selectedTraceId() ? "back to traces" : undefined}
+        >
           <div class="grid place-items-center w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple text-ink-950 font-bold">
             P
           </div>
-          <div class="leading-tight">
+          <div class="leading-tight text-left">
             <div class="text-sm font-semibold">periscope</div>
             <div class="text-[10.5px] text-ink-400 mono">
               {isStaticMode() ? "static export" : daemonLabel()}
             </div>
           </div>
-        </div>
+        </button>
+        <Show when={selectedTraceId()}>
+          <button
+            type="button"
+            onClick={() => setSelectedTraceId(null)}
+            class="chip text-[11px]"
+            title="show all traces"
+          >
+            ← all traces
+          </button>
+        </Show>
         <div class="h-6 w-px bg-ink-700 mx-2" />
 
-        <Show when={trace()} fallback={<span class="text-ink-400 text-sm mono">no trace</span>}>
+        <Show when={trace()} fallback={<span class="text-ink-400 text-sm mono">{selectedTraceId() ? "loading…" : "select a trace"}</span>}>
           {(t) => {
             const meta = () => t().meta;
             const status = () => meta().response?.status_code ?? 0;

@@ -5,6 +5,7 @@
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
+#include "ext/json/php_json.h"
 #include "Zend/zend_observer.h"
 #include "Zend/zend_smart_str.h"
 #include "SAPI.h"
@@ -34,12 +35,14 @@ ZEND_DECLARE_MODULE_GLOBALS(periscope)
 
 PHP_INI_BEGIN()
     STD_PHP_INI_BOOLEAN("periscope.skip_internal",     "1", PHP_INI_SYSTEM,                OnUpdateBool,   skip_internal,     zend_periscope_globals, periscope_globals)
-    STD_PHP_INI_BOOLEAN("periscope.disabled",          "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, disabled,          zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_BOOLEAN("periscope.enabled",           "1", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, enabled,           zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_BOOLEAN("periscope.verbose",           "0", PHP_INI_ALL,                   OnUpdateBool,   verbose,           zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.max_depth",         "5", PHP_INI_ALL,                   OnUpdateLong,   max_depth,         zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.max_string",     "4096", PHP_INI_ALL,                   OnUpdateLong,   max_string,        zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.max_array_items", "100", PHP_INI_ALL,                   OnUpdateLong,   max_array_items,   zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.max_object_props", "50", PHP_INI_ALL,                   OnUpdateLong,   max_object_props,  zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.namespace_filter",  "",  PHP_INI_ALL,                   OnUpdateString, namespace_filter,  zend_periscope_globals, periscope_globals)
+    STD_PHP_INI_ENTRY  ("periscope.path_ignore",       "",  PHP_INI_ALL,                   OnUpdateString, path_ignore,       zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.trace_dir",         "",  PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateString, trace_dir,        zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.max_traces",      "100", PHP_INI_ALL,                   OnUpdateLong,   max_traces,        zend_periscope_globals, periscope_globals)
     STD_PHP_INI_ENTRY  ("periscope.max_trace_age_seconds", "86400", PHP_INI_ALL,           OnUpdateLong,   max_trace_age_seconds, zend_periscope_globals, periscope_globals)
@@ -48,13 +51,15 @@ PHP_INI_END()
 static void php_periscope_init_globals(zend_periscope_globals *g)
 {
     g->skip_internal     = true;
-    g->disabled          = false;
+    g->enabled           = true;
+    g->verbose           = false;
     g->depth             = 0;
     g->max_depth         = 5;
     g->max_string        = 4096;
     g->max_array_items   = 100;
     g->max_object_props  = 50;
     g->namespace_filter  = NULL;
+    g->path_ignore       = NULL;
     g->trace_dir         = NULL;
     g->max_traces        = 100;
     g->max_trace_age_seconds = 86400;
@@ -227,7 +232,7 @@ static void periscope_trace_retention_sweep(const char *dir,
 static void periscope_fcall_begin(zend_execute_data *ex)
 {
     if (ex == NULL || ex->func == NULL) return;
-    if (PERISCOPE_G(disabled)) return;
+    if (!PERISCOPE_G(enabled)) return;
 
     int d = PERISCOPE_G(depth);
     if (d < PERISCOPE_MAX_DEPTH) {
@@ -253,33 +258,37 @@ static void periscope_fcall_begin(zend_execute_data *ex)
         }
     }
 
-    /* stderr output (Phase 2/3 behaviour preserved) */
-    smart_str *buf = &PERISCOPE_G(scratch);
-    periscope_capture_options_t opts;
-    periscope_current_options(&opts);
+    /* stderr mirror — opt-in via periscope.verbose=1.
+     * Off by default so production-style runs (Valet, php-fpm, queue workers)
+     * don't drown stderr in megabytes of frame log lines. */
+    if (PERISCOPE_G(verbose)) {
+        smart_str *buf = &PERISCOPE_G(scratch);
+        periscope_capture_options_t opts;
+        periscope_current_options(&opts);
 
-    smart_str_appendl(buf, "[periscope] enter ", sizeof("[periscope] enter ") - 1);
-    periscope_capture_function_name(buf, ex->func);
-    smart_str_appendc(buf, '(');
+        smart_str_appendl(buf, "[periscope] enter ", sizeof("[periscope] enter ") - 1);
+        periscope_capture_function_name(buf, ex->func);
+        smart_str_appendc(buf, '(');
 
-    uint32_t arg_count = ZEND_CALL_NUM_ARGS(ex);
-    for (uint32_t i = 0; i < arg_count; i++) {
-        if (i > 0) smart_str_appendl(buf, ", ", 2);
-        zval *arg = ZEND_CALL_ARG(ex, i + 1);
-        periscope_capture_arg(buf, ex->func, i, arg, &opts);
+        uint32_t arg_count = ZEND_CALL_NUM_ARGS(ex);
+        for (uint32_t i = 0; i < arg_count; i++) {
+            if (i > 0) smart_str_appendl(buf, ", ", 2);
+            zval *arg = ZEND_CALL_ARG(ex, i + 1);
+            periscope_capture_arg(buf, ex->func, i, arg, &opts);
+        }
+
+        char depthbuf[32];
+        int n = snprintf(depthbuf, sizeof(depthbuf), ") @depth=%d\n", d + 1);
+        smart_str_appendl(buf, depthbuf, n);
+
+        periscope_flush_scratch();
     }
-
-    char depthbuf[32];
-    int n = snprintf(depthbuf, sizeof(depthbuf), ") @depth=%d\n", d + 1);
-    smart_str_appendl(buf, depthbuf, n);
-
-    periscope_flush_scratch();
 }
 
 static void periscope_fcall_end(zend_execute_data *ex, zval *retval)
 {
     if (ex == NULL || ex->func == NULL) return;
-    if (PERISCOPE_G(disabled)) return;
+    if (!PERISCOPE_G(enabled)) return;
 
     int d = PERISCOPE_G(depth) - 1;
     if (d < 0) d = 0;
@@ -326,26 +335,28 @@ static void periscope_fcall_end(zend_execute_data *ex, zval *retval)
         free(ret);
     }
 
-    /* stderr output (Phase 2/3 behaviour preserved) */
-    smart_str *buf = &PERISCOPE_G(scratch);
-    periscope_capture_options_t opts;
-    periscope_current_options(&opts);
+    /* stderr mirror — see fcall_begin for rationale. */
+    if (PERISCOPE_G(verbose)) {
+        smart_str *buf = &PERISCOPE_G(scratch);
+        periscope_capture_options_t opts;
+        periscope_current_options(&opts);
 
-    smart_str_appendl(buf, "[periscope] exit  ", sizeof("[periscope] exit  ") - 1);
-    periscope_capture_function_name(buf, ex->func);
-    periscope_capture_return_type(buf, ex->func);
-    smart_str_appendl(buf, " -> ", 4);
-    periscope_capture_value(buf, retval, &opts);
+        smart_str_appendl(buf, "[periscope] exit  ", sizeof("[periscope] exit  ") - 1);
+        periscope_capture_function_name(buf, ex->func);
+        periscope_capture_return_type(buf, ex->func);
+        smart_str_appendl(buf, " -> ", 4);
+        periscope_capture_value(buf, retval, &opts);
 
-    char tail[64];
-    int n;
-    if (elapsed_ms >= 0) {
-        n = snprintf(tail, sizeof(tail), " (%.3fms) @depth=%d\n", elapsed_ms, d + 1);
-    } else {
-        n = snprintf(tail, sizeof(tail), " @depth=%d\n", d + 1);
+        char tail[64];
+        int n;
+        if (elapsed_ms >= 0) {
+            n = snprintf(tail, sizeof(tail), " (%.3fms) @depth=%d\n", elapsed_ms, d + 1);
+        } else {
+            n = snprintf(tail, sizeof(tail), " @depth=%d\n", d + 1);
+        }
+        smart_str_appendl(buf, tail, n);
+        periscope_flush_scratch();
     }
-    smart_str_appendl(buf, tail, n);
-    periscope_flush_scratch();
 }
 
 static zend_observer_fcall_handlers periscope_observer_init(zend_execute_data *ex)
@@ -368,12 +379,14 @@ static PHP_MINIT_FUNCTION(periscope)
 
     const char *env = getenv("PERISCOPE_DISABLE");
     if (env && env[0] != '\0' && env[0] != '0') {
-        PERISCOPE_G(disabled) = true;
+        PERISCOPE_G(enabled) = false;
     }
 
     zend_observer_fcall_register(periscope_observer_init);
 
-    fprintf(stderr, "periscope loaded\n");
+    if (PERISCOPE_G(verbose)) {
+        fprintf(stderr, "periscope loaded\n");
+    }
     return SUCCESS;
 }
 
@@ -384,29 +397,123 @@ static PHP_MSHUTDOWN_FUNCTION(periscope)
 }
 
 /* Per-request `X-Periscope-Mode` header lets the UI flip modes without
- * editing php.ini. Values:
- *   off       — disable all capture for this request (kill switch)
- *   full      — force full capture (overrides INI/env if disabled there)
- *   anything else — leave INI/env settings untouched
+ * editing php.ini. Three signal sources, in priority order — first match
+ * wins:
  *
- * The UI's "Re-run with periscope off" button uses this. */
+ *   1. `X-Periscope-Mode: full|on|off|kill` header
+ *   2. `?periscope=1|full|0|off` query string
+ *   3. `PERISCOPE` env var (CLI / FPM SetEnv)
+ *
+ * `full|on|1`  forces capture on even if `periscope.enabled=0` in the INI;
+ * `off|kill|0` forces capture off for this one request only.
+ *
+ * The header path requires us to force-populate `$_SERVER` because at RINIT
+ * time auto-globals are still lazy and `$_SERVER` reads as NULL — querying
+ * `PG(http_globals)[TRACK_VARS_SERVER]` directly silently no-ops without
+ * this prime. */
 static void periscope_apply_mode_header(void)
 {
+    /* Prime $_SERVER so we can read it from RINIT. Cheap on subsequent calls. */
+    zend_is_auto_global_str(ZEND_STRL("_SERVER"));
+
+    /* 1. header */
     zval *server = &PG(http_globals)[TRACK_VARS_SERVER];
-    if (Z_TYPE_P(server) != IS_ARRAY) {
+    const char *v = NULL;
+    if (Z_TYPE_P(server) == IS_ARRAY) {
+        zval *hdr = zend_hash_str_find(
+            Z_ARRVAL_P(server),
+            "HTTP_X_PERISCOPE_MODE", sizeof("HTTP_X_PERISCOPE_MODE") - 1);
+        if (hdr != NULL && Z_TYPE_P(hdr) == IS_STRING) {
+            v = Z_STRVAL_P(hdr);
+        }
+    }
+
+    /* 2. query string (?periscope=full or ?periscope=1) */
+    if (v == NULL && SG(request_info).query_string != NULL) {
+        const char *q = SG(request_info).query_string;
+        const char *m = strstr(q, "periscope=");
+        if (m == q || (m != NULL && (m[-1] == '&' || m[-1] == '?'))) {
+            const char *start = m + sizeof("periscope=") - 1;
+            const char *end   = strchr(start, '&');
+            size_t      len   = end ? (size_t)(end - start) : strlen(start);
+            static char buf[16];
+            if (len > 0 && len < sizeof(buf)) {
+                memcpy(buf, start, len);
+                buf[len] = '\0';
+                v = buf;
+            }
+        }
+    }
+
+    /* 3. env var fallback (CLI / FPM SetEnv) */
+    if (v == NULL) {
+        v = getenv("PERISCOPE");
+    }
+
+    if (v == NULL) {
         return;
     }
-    zval *hdr = zend_hash_str_find(
-        Z_ARRVAL_P(server),
-        "HTTP_X_PERISCOPE_MODE", sizeof("HTTP_X_PERISCOPE_MODE") - 1);
-    if (hdr == NULL || Z_TYPE_P(hdr) != IS_STRING) {
+    if (strcasecmp(v, "off") == 0 || strcasecmp(v, "kill") == 0
+        || strcasecmp(v, "0") == 0) {
+        PERISCOPE_G(enabled) = false;
+    } else if (strcasecmp(v, "full") == 0 || strcasecmp(v, "on") == 0
+        || strcasecmp(v, "1") == 0) {
+        PERISCOPE_G(enabled) = true;
+    }
+}
+
+/* Skip capture when the request URI starts with any prefix in
+ * `periscope.path_ignore` (comma-separated). Used to keep observability
+ * tooling — Telescope's own self-polling, Periscope's UI, Boost's browser-log
+ * shipping, Horizon, Debugbar — out of the trace buffer where they crowd out
+ * real app traffic.
+ *
+ * Only takes effect when the per-request mode header didn't force capture
+ * `on`/`full`. An explicit ?periscope=full overrides path-ignore so users can
+ * still drill into ignored paths when they need to.
+ */
+static void periscope_apply_path_filter(void)
+{
+    if (!PERISCOPE_G(enabled)) {
+        return; /* already off — nothing to do */
+    }
+
+    const char *list = PERISCOPE_G(path_ignore);
+    if (list == NULL || list[0] == '\0') {
         return;
     }
-    const char *v = Z_STRVAL_P(hdr);
-    if (strcasecmp(v, "off") == 0 || strcasecmp(v, "kill") == 0) {
-        PERISCOPE_G(disabled) = true;
-    } else if (strcasecmp(v, "full") == 0 || strcasecmp(v, "on") == 0) {
-        PERISCOPE_G(disabled) = false;
+
+    const char *uri = SG(request_info).request_uri;
+    if (uri == NULL || uri[0] == '\0') {
+        return;
+    }
+
+    /* Split `list` on commas and check each prefix. We keep this allocation-
+     * free by walking the source buffer with two pointers. Whitespace at
+     * either end of a prefix is trimmed. Empty fields are ignored. */
+    const char *p = list;
+    while (*p != '\0') {
+        /* skip leading whitespace */
+        while (*p == ' ' || *p == '\t') p++;
+
+        const char *start = p;
+        while (*p != '\0' && *p != ',') p++;
+        const char *end = p;
+
+        /* trim trailing whitespace */
+        while (end > start && (end[-1] == ' ' || end[-1] == '\t')) end--;
+
+        size_t plen = (size_t)(end - start);
+        if (plen > 0 && strncmp(uri, start, plen) == 0) {
+            /* prefix match: also accept exact match or boundary at /,?,# */
+            char next = uri[plen];
+            if (next == '\0' || next == '/' || next == '?' || next == '#') {
+                PERISCOPE_G(enabled) = false;
+                return;
+            }
+        }
+
+        if (*p == ',') p++;
     }
 }
 
@@ -417,6 +524,7 @@ static PHP_RINIT_FUNCTION(periscope)
     PERISCOPE_G(request_start_us) = periscope_now_us_monotonic();
 
     periscope_apply_mode_header();
+    periscope_apply_path_filter();
 
     if (PERISCOPE_G(scratch).s == NULL) {
         smart_str_alloc(&PERISCOPE_G(scratch), 4096, 0);
@@ -427,7 +535,7 @@ static PHP_RINIT_FUNCTION(periscope)
     /* Open a trace if periscope.trace_dir is set */
     PERISCOPE_G(trace) = NULL;
     const char *trace_dir = PERISCOPE_G(trace_dir);
-    if (trace_dir && trace_dir[0] != '\0' && !PERISCOPE_G(disabled)) {
+    if (trace_dir && trace_dir[0] != '\0' && PERISCOPE_G(enabled)) {
         /* Cheap retention sweep before we add another trace */
         periscope_trace_retention_sweep(
             trace_dir,
@@ -460,6 +568,88 @@ static PHP_RINIT_FUNCTION(periscope)
     return SUCCESS;
 }
 
+/* Read a string from $_SERVER. Returns NULL if not set or not a string. */
+static const char *read_server_str(const char *key, size_t key_len)
+{
+    zval *server = &PG(http_globals)[TRACK_VARS_SERVER];
+    if (Z_TYPE_P(server) != IS_ARRAY) return NULL;
+    zval *v = zend_hash_str_find(Z_ARRVAL_P(server), key, key_len);
+    if (v == NULL || Z_TYPE_P(v) != IS_STRING) return NULL;
+    return Z_STRVAL_P(v);
+}
+
+/* Render a zval as a JSON string. Caller frees with `efree(...)` once done.
+ * Returns "{}" (constant — never free) when the source isn't an array. */
+static char *zval_to_json(const zval *src)
+{
+    if (src == NULL || Z_TYPE_P(src) != IS_ARRAY) {
+        return NULL;
+    }
+    smart_str buf = {0};
+    if (php_json_encode(&buf, (zval *)src, 0) != SUCCESS || buf.s == NULL) {
+        smart_str_free(&buf);
+        return NULL;
+    }
+    smart_str_0(&buf);
+    char *out = estrndup(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s));
+    smart_str_free(&buf);
+    return out;
+}
+
+/* Build a JSON object of the request's HTTP headers from $_SERVER's HTTP_*
+ * keys, plus CONTENT_TYPE/CONTENT_LENGTH. Caller frees with efree. */
+static char *build_headers_json(void)
+{
+    zval *server = &PG(http_globals)[TRACK_VARS_SERVER];
+    if (Z_TYPE_P(server) != IS_ARRAY) return NULL;
+
+    zval headers;
+    array_init(&headers);
+
+    zend_string *zkey;
+    zval *zval_val;
+    ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(server), zkey, zval_val) {
+        if (zkey == NULL) continue;
+        const char *k = ZSTR_VAL(zkey);
+        size_t klen = ZSTR_LEN(zkey);
+
+        const char *name_src = NULL;
+        size_t name_skip = 0;
+        if (klen > 5 && memcmp(k, "HTTP_", 5) == 0) {
+            name_src = k;
+            name_skip = 5;
+        } else if (klen == 12 && memcmp(k, "CONTENT_TYPE", 12) == 0) {
+            name_src = k;
+            name_skip = 0;
+        } else if (klen == 14 && memcmp(k, "CONTENT_LENGTH", 14) == 0) {
+            name_src = k;
+            name_skip = 0;
+        } else {
+            continue;
+        }
+
+        /* Convert HTTP_X_FOO → x-foo (lowercase, underscores → hyphens). */
+        size_t name_len = klen - name_skip;
+        char *name = emalloc(name_len + 1);
+        for (size_t i = 0; i < name_len; i++) {
+            char c = name_src[i + name_skip];
+            if (c == '_') c = '-';
+            else if (c >= 'A' && c <= 'Z') c += 32;
+            name[i] = c;
+        }
+        name[name_len] = '\0';
+
+        if (Z_TYPE_P(zval_val) == IS_STRING) {
+            add_assoc_stringl(&headers, name, Z_STRVAL_P(zval_val), Z_STRLEN_P(zval_val));
+        }
+        efree(name);
+    } ZEND_HASH_FOREACH_END();
+
+    char *out = zval_to_json(&headers);
+    zval_ptr_dtor(&headers);
+    return out;
+}
+
 static PHP_RSHUTDOWN_FUNCTION(periscope)
 {
     if (PERISCOPE_G(trace) != NULL) {
@@ -467,9 +657,61 @@ static PHP_RSHUTDOWN_FUNCTION(periscope)
         uint64_t duration = (now > PERISCOPE_G(request_start_us))
             ? (now - PERISCOPE_G(request_start_us)) : 0;
 
+        /* Populate the request envelope before closing the trace. We pull
+         * method/uri/scheme/remote_addr from $_SERVER (which by RSHUTDOWN
+         * is fully populated on every SAPI). Headers/cookies/query/post
+         * bodies stay empty for now — those land in a follow-up that walks
+         * $_SERVER's HTTP_* keys + $_COOKIE/$_GET/$_POST. */
+        zend_is_auto_global_str(ZEND_STRL("_SERVER"));
+        const char *method      = read_server_str(ZEND_STRL("REQUEST_METHOD"));
+        const char *uri         = read_server_str(ZEND_STRL("REQUEST_URI"));
+        const char *remote_addr = read_server_str(ZEND_STRL("REMOTE_ADDR"));
+        const char *scheme      = read_server_str(ZEND_STRL("REQUEST_SCHEME"));
+        if (scheme == NULL) {
+            const char *https = read_server_str(ZEND_STRL("HTTPS"));
+            scheme = (https && https[0] != '\0' && strcasecmp(https, "off") != 0)
+                ? "https" : "http";
+        }
+        if (method != NULL || uri != NULL) {
+            char *headers_json = build_headers_json();
+            char *cookies_json = zval_to_json(&PG(http_globals)[TRACK_VARS_COOKIE]);
+            char *query_json   = zval_to_json(&PG(http_globals)[TRACK_VARS_GET]);
+            char *post_json    = zval_to_json(&PG(http_globals)[TRACK_VARS_POST]);
+
+            periscope_trace_set_request(
+                PERISCOPE_G(trace),
+                method ? method : "",
+                uri ? uri : "",
+                headers_json ? headers_json : "{}",
+                cookies_json ? cookies_json : "{}",
+                query_json   ? query_json   : "{}",
+                post_json    ? post_json    : "{}",
+                NULL, 0, 0,
+                remote_addr ? remote_addr : "",
+                scheme ? scheme : "");
+
+            if (headers_json) efree(headers_json);
+            if (cookies_json) efree(cookies_json);
+            if (query_json)   efree(query_json);
+            if (post_json)    efree(post_json);
+        }
+
+        /* Response: status code + peak memory. SG(sapi_headers).http_response_code
+         * holds the last-set status, defaulting to 200 if untouched. */
+        uint16_t status = (uint16_t)SG(sapi_headers).http_response_code;
+        if (status == 0) status = 200;
+        size_t peak_mem = zend_memory_peak_usage(1);
+        periscope_trace_set_response(
+            PERISCOPE_G(trace),
+            status,
+            "{}", /* headers — todo */
+            (uint64_t)peak_mem);
+
         const char *path = periscope_trace_close(PERISCOPE_G(trace), duration);
         if (path) {
-            fprintf(stderr, "[periscope] trace written: %s\n", path);
+            if (PERISCOPE_G(verbose)) {
+                fprintf(stderr, "[periscope] trace written: %s\n", path);
+            }
 
             /* Notify any subscribed UI tab via the daemon. The "request_id"
              * is the trace file's basename without extension — stable, unique,

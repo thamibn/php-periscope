@@ -10,6 +10,7 @@ use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\JobQueued;
 use Periscope\Laravel\Bridge\ExtensionBridge;
+use Periscope\Laravel\Bus\JobDispatchTracker;
 use Periscope\Laravel\Support\CallSiteResolver;
 
 final readonly class JobHook implements Hook
@@ -18,6 +19,7 @@ final readonly class JobHook implements Hook
         private ExtensionBridge $bridge,
         private CallSiteResolver $callSites,
         private Dispatcher $events,
+        private ?JobDispatchTracker $dispatchTracker = null,
     ) {}
 
     public function register(): void
@@ -47,6 +49,12 @@ final readonly class JobHook implements Hook
 
     private function onProcessing(JobProcessing $event): void
     {
+        // Prefer the dispatch site (e.g. the controller line that called
+        // `MyJob::dispatch(...)`) over the worker / kernel-terminate frame
+        // that the live backtrace would resolve to. Falls back to live
+        // resolution for jobs we didn't see dispatched (e.g. workers).
+        $callSite = $this->dispatchTracker?->peek() ?? $this->callSites->resolve();
+
         $this->bridge->recordEvent('job', [
             'phase'      => 'processing',
             'connection' => $event->connectionName,
@@ -54,7 +62,7 @@ final readonly class JobHook implements Hook
             'class'      => $event->job->resolveName(),
             'id'         => $event->job->getJobId(),
             'attempts'   => $event->job->attempts(),
-        ], $this->callSites->resolve());
+        ], $callSite);
     }
 
     private function onProcessed(JobProcessed $event): void

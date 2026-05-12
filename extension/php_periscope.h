@@ -16,12 +16,14 @@
 ZEND_BEGIN_MODULE_GLOBALS(periscope)
     /* INI-controlled */
     bool skip_internal;
-    bool disabled;
+    bool enabled;
+    bool verbose;             /* mirror enter/exit/trace lines to stderr */
     zend_long max_depth;
     zend_long max_string;
     zend_long max_array_items;
     zend_long max_object_props;
     char *namespace_filter;
+    char *path_ignore;        /* comma-separated request URI prefixes to skip */
     char *trace_dir;          /* empty/NULL = no on-disk trace */
     zend_long max_traces;     /* keep newest N; 0 = unlimited */
     zend_long max_trace_age_seconds;  /* delete older; 0 = never expire */

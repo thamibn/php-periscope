@@ -48,7 +48,7 @@ bool periscope_filter_should_observe(const zend_function *func)
     if (func == NULL) return false;
 
     /* Kill switch */
-    if (PERISCOPE_G(disabled)) return false;
+    if (!PERISCOPE_G(enabled)) return false;
 
     /* Internal functions (default skipped) */
     if (PERISCOPE_G(skip_internal) && func->type == ZEND_INTERNAL_FUNCTION) {

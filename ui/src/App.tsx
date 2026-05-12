@@ -1,7 +1,8 @@
-import { Show, createEffect, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
-import { TabStrip } from "./components/TabStrip";
+import { TracesList } from "./components/TracesList";
+import { SettingsView } from "./components/SettingsView";
 import { TimelineScrubber } from "./components/TimelineScrubber";
 import { Overview } from "./panels/Overview";
 import { Source } from "./panels/Source";
@@ -16,14 +17,19 @@ import {
   activeTab,
   bootstrapCursor,
   bootstrapSelection,
-  setSelectedTraceId,
+  cursorMicros,
+  selectedTraceId,
+  setCursorMicros,
   setTracesRefreshKey,
   trace,
   traces,
 } from "./lib/store";
 import { DropZone } from "./components/DropZone";
 
+type LandingView = "traces" | "settings";
+
 export function App() {
+  const [landingView, setLandingView] = createSignal<LandingView>("traces");
   // Auto-pick newest trace once the list arrives.
   createEffect(() => {
     void traces();
@@ -40,10 +46,19 @@ export function App() {
   onMount(() => {
     const dispose = subscribeWs((msg) => {
       if (typeof msg !== "object" || !msg) return;
-      const m = msg as { type?: string; trace_id?: string };
+      const m = msg as { type?: string; trace_id?: string; at_micros?: number };
       if (m.type === "request_finished") {
+        // Always refresh the list so the new trace appears, but never auto-
+        // jump into it: that would yank the user out of whatever trace
+        // they're currently inspecting, or skip past the landing page.
         setTracesRefreshKey((k) => k + 1);
-        if (m.trace_id) setSelectedTraceId(m.trace_id);
+      } else if (m.type === "cursor_set" && typeof m.at_micros === "number") {
+        // Another tab moved the timeline cursor on the same trace. Mirror
+        // the move locally so multi-tab debugging stays in sync. Skip when
+        // the cursor is already there — avoids a publish/echo feedback loop.
+        if (m.trace_id && m.trace_id !== selectedTraceId()) return;
+        if (Math.abs(m.at_micros - cursorMicros()) < 1) return;
+        setCursorMicros(m.at_micros);
       }
     });
     onCleanup(dispose);
@@ -52,16 +67,52 @@ export function App() {
   return (
     <div class="min-h-screen flex flex-col">
       <Header />
-      <TabStrip />
-      <main class="grid grid-cols-[260px_minmax(0,1fr)] gap-4 px-4 py-4 flex-1 min-h-0 pb-24">
-        <Sidebar />
-        <section class="min-w-0 space-y-4">
-          <Show when={trace()} fallback={<EmptyState />}>
-            <TabContent />
-          </Show>
-        </section>
-      </main>
-      <TimelineScrubber />
+      <Show
+        when={selectedTraceId()}
+        fallback={
+          <main class="px-4 py-6 flex-1 min-h-0 max-w-5xl w-full mx-auto space-y-3">
+            <div class="flex items-center justify-end gap-3 text-[12px]">
+              <button
+                type="button"
+                class={`mono tracking-wider uppercase text-[11px] transition-colors ${
+                  landingView() === "traces" ? "text-accent" : "text-ink-400 hover:text-ink-200"
+                }`}
+                onClick={() => setLandingView("traces")}
+              >
+                traces
+              </button>
+              <span class="text-ink-700">·</span>
+              <button
+                type="button"
+                class={`mono tracking-wider uppercase text-[11px] transition-colors ${
+                  landingView() === "settings" ? "text-accent" : "text-ink-400 hover:text-ink-200"
+                }`}
+                onClick={() => setLandingView("settings")}
+              >
+                settings
+              </button>
+            </div>
+            <Show when={landingView() === "traces"}>
+              <Show when={traces().length > 0} fallback={<EmptyState />}>
+                <TracesList />
+              </Show>
+            </Show>
+            <Show when={landingView() === "settings"}>
+              <SettingsView onBack={() => setLandingView("traces")} />
+            </Show>
+          </main>
+        }
+      >
+        <main class="grid grid-cols-[260px_minmax(0,1fr)] gap-6 px-4 py-4 flex-1 min-h-0 pb-24">
+          <Sidebar />
+          <section class="min-w-0 space-y-4">
+            <Show when={trace()} fallback={<div class="panel p-6 text-ink-400">Loading trace…</div>}>
+              <TabContent />
+            </Show>
+          </section>
+        </main>
+        <TimelineScrubber />
+      </Show>
       <Show when={!isStaticMode()}>
         <DropZone />
       </Show>
@@ -110,6 +161,9 @@ function TabContent() {
       </Show>
       <Show when={activeTab() === "exceptions"}>
         <GenericEventList type="exception" title="Exceptions" empty="No exceptions thrown." />
+      </Show>
+      <Show when={activeTab() === "dumps"}>
+        <GenericEventList type="dump" title="Dumps" empty="No dump() / dd() calls captured. Set PERISCOPE_HOOK_DUMP=true and call dump() in your code." />
       </Show>
       <Show when={activeTab() === "insights"}>
         <InsightsPanel />

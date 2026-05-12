@@ -143,6 +143,50 @@ return [
         // Absolute path to the built `ui/dist/` directory. When unset the
         // adapter probes a few common locations relative to the package.
         'bundle_dir'  => env('PERISCOPE_UI_BUNDLE_DIR'),
+
+        /*
+        | Production lock-down
+        |---------------------------------------------------------------------
+        | When `APP_DEBUG=false`, the UI is locked behind a 403 by default.
+        | Trace contents leak cookies, session tokens, captured variables —
+        | shipping it open to the internet is a credentials breach waiting
+        | to happen. Telescope locks itself the same way.
+        |
+        | To open the UI in production:
+        |   1. Set PERISCOPE_UI_ALLOW_IN_PROD=true
+        |   2. Set PERISCOPE_UI_TOKEN to a long random string (>= 32 chars)
+        |   3. Visit  https://your-app.example/periscope?token=<the-token>
+        |      (the token is stashed in a session cookie, valid until
+        |       you clear cookies)
+        |
+        | For finer-grained control register a closure via:
+        |   Periscope\Laravel\Http\UiGate::authorize(fn ($request) => …);
+        | (e.g. allow only specific user emails or IPs).
+        */
+        'allow_in_production' => (bool) env('PERISCOPE_UI_ALLOW_IN_PROD', false),
+        'token'               => env('PERISCOPE_UI_TOKEN'),
+    ],
+
+    /*
+    |---------------------------------------------------------------------
+    | Floating in-page toolbar (opt-in)
+    |---------------------------------------------------------------------
+    | Inject a small chip into HTML responses showing this request's
+    | duration, query count, peak memory and status. Clicking it opens
+    | the periscope UI in a new tab. Off by default — never auto-injects
+    | until you set PERISCOPE_TOOLBAR_ENABLED=true.
+    |
+    | The chip is HTML-only: nothing is injected into JSON, AJAX,
+    | streaming, or non-2xx responses with no `</body>`.
+    |
+    | `open_url` overrides the link target. When unset the toolbar opens
+    | the same `path` as `ui.path` (so `/periscope` by default), which is
+    | only useful when `ui.enabled=true`. If neither apply, set this to
+    | `http://127.0.0.1:9999` to point at the daemon's UI directly.
+    */
+    'toolbar' => [
+        'enabled'  => (bool) env('PERISCOPE_TOOLBAR_ENABLED', false),
+        'open_url' => env('PERISCOPE_TOOLBAR_OPEN_URL'),
     ],
 
     'vendor_skip' => [
@@ -160,5 +204,34 @@ return [
         '/vendor/periscopephp/laravel/',
         '/laravel-adapter/src/',
     ],
+
+    /*
+    |---------------------------------------------------------------------
+    | Path ignore — what to exclude from capture
+    |---------------------------------------------------------------------
+    | Request URIs that start with any of these prefixes are dropped
+    | from the trace at request boot (no events recorded, trace file not
+    | finalised). The defaults skip the obvious noise: Periscope's own UI,
+    | Telescope's UI + its self-polling SPA, Boost's browser-log POSTs,
+    | Horizon, Debugbar, Ignition, plus a few static-asset routes that
+    | sometimes reach Laravel (manifest.json / favicon / robots).
+    |
+    | Edit via .env:
+    |   PERISCOPE_PATH_IGNORE=/periscope,/telescope,/my-other-route
+    |
+    | Without these prefixes, Telescope's own self-polling alone fills
+    | the entire retention buffer in under a minute on a busy app.
+    |
+    | Note: an identical list also lives in 99-periscope.ini under
+    | `periscope.path_ignore` for engine-level suppression. The engine
+    | filter runs at RINIT (before Laravel boots), so it's the cheaper
+    | gate; this Laravel-level list is the source of truth for the
+    | Settings UI and lets you override per-app via .env without editing
+    | system php.ini.
+    */
+    'path_ignore' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+        'PERISCOPE_PATH_IGNORE',
+        '/periscope,/telescope,/_boost,/_tt,/_debugbar,/horizon,/_ignition,/manifest.json,/favicon.ico,/robots.txt',
+    ))))),
 
 ];

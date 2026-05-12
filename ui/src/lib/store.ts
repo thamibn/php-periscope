@@ -22,6 +22,7 @@ export type TabId =
   | "mail"
   | "notifications"
   | "exceptions"
+  | "dumps"
   | "insights"
   | "performance"
   | "request"
@@ -41,6 +42,7 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: "mail", label: "Mail" },
   { id: "notifications", label: "Notifications" },
   { id: "exceptions", label: "Exceptions" },
+  { id: "dumps", label: "Dumps" },
   { id: "insights", label: "Insights" },
   { id: "performance", label: "Performance" },
   { id: "request", label: "Request" },
@@ -113,18 +115,23 @@ export const eventsByType = createMemo(() => {
   return grouped;
 });
 
-// Auto-select the newest trace when the list arrives.
+// No-op: previously auto-selected the newest trace. Now the UI starts on
+// the Traces landing page and waits for the user to click a trace. Kept
+// as a function for callers that may still reference it.
 export function bootstrapSelection(): void {
-  const list = traces();
-  if (!selectedTraceId() && list && list.length > 0) {
-    setSelectedTraceId(list[0]!.id);
-  }
+  /* intentionally empty — landing page handles selection */
 }
 
-// Move the cursor to the end of the current trace by default.
+// Park the cursor at the end of the current trace whenever a different trace
+// loads. Without this, switching traces leaves the cursor at the previous
+// trace's position — so a trace whose events live past that timestamp shows
+// up empty in every panel.
+let lastBootstrappedTrace: string | null = null;
 export function bootstrapCursor(): void {
   const t = trace();
-  if (t && cursorMicros() === 0) {
+  if (!t) return;
+  if (lastBootstrappedTrace !== t.id) {
+    lastBootstrappedTrace = t.id;
     setCursorMicros(t.meta.duration_micros);
   }
 }

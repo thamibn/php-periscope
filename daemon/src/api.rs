@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::ext_link::LinkBus;
+use crate::ext_link::{LinkBus, UiMessage};
 use crate::insights;
 use crate::replay::{self, TraceIndex};
 use crate::summary;
@@ -87,6 +87,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/traces/:id/events", get(list_events))
         .route("/api/traces/:id/state", get(get_state))
         .route("/api/file", get(read_file))
+        .route("/api/storage", get(get_storage))
+        .route("/api/storage/reveal", post(reveal_storage))
+        .route("/api/client-metrics", post(post_client_metrics))
+        .route("/api/traces/:id/client-metrics", get(get_client_metrics))
         .route("/api/traces/:id/rerun", post(rerun_stub))
         .route("/ws", get(ws_handler))
         .with_state(Arc::new(state));
@@ -595,12 +599,16 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_ws(socket, bus))
 }
 
-/// Subscribe a connected WebSocket client to live ext-link messages.
-/// Per Phase 8a: messages are pushed when interesting daemon-side events
-/// happen (currently `request_finished` from the C extension at RSHUTDOWN).
-/// The browser tab uses this to auto-open new traces with no user click.
+/// Subscribe a connected WebSocket client to live ext-link messages and
+/// UI fanout (Phase 9b: cursor moves between browser tabs).
+///
+/// Outbound: forward `ExtMessage` (e.g. `request_finished` at RSHUTDOWN) and
+/// `UiMessage` (e.g. `cursor_set` from another tab) as JSON text frames.
+/// Inbound: parse `UiMessage` JSON; valid frames are republished on the UI
+/// bus so every other tab sees them. Unknown frames are ignored.
 async fn handle_ws(mut socket: WebSocket, bus: Arc<LinkBus>) {
     let mut rx = bus.subscribe();
+    let mut ui_rx = bus.subscribe_ui();
     // Greet the client so it knows the connection is live.
     let _ = socket
         .send(Message::Text(
@@ -610,7 +618,7 @@ async fn handle_ws(mut socket: WebSocket, bus: Arc<LinkBus>) {
 
     loop {
         tokio::select! {
-            // Forward bus messages to the browser as JSON text frames.
+            // Forward ext-link bus messages to the browser as JSON text frames.
             recv = rx.recv() => match recv {
                 Ok(msg) => {
                     let payload = serde_json::to_string(&msg)
@@ -627,14 +635,228 @@ async fn handle_ws(mut socket: WebSocket, bus: Arc<LinkBus>) {
                 }
                 Err(_) => break,
             },
-            // Ignore inbound text but break on close.
+            // Fan out UI messages from other tabs (cursor_set, etc.).
+            recv = ui_rx.recv() => match recv {
+                Ok(msg) => {
+                    let payload = serde_json::to_string(&msg)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    if socket.send(Message::Text(payload)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            },
+            // Inbound: parse UI messages and fan out to other tabs.
             inbound = socket.recv() => match inbound {
+                Some(Ok(Message::Text(text))) => {
+                    if let Ok(ui_msg) = serde_json::from_str::<UiMessage>(&text) {
+                        bus.publish_ui(ui_msg);
+                    }
+                }
                 Some(Ok(Message::Close(_))) | None => break,
                 Some(Ok(_)) => continue,
                 Some(Err(_)) => break,
             }
         }
     }
+}
+
+#[derive(Serialize)]
+struct StorageStats {
+    /// Absolute path of the trace directory the daemon is reading from.
+    trace_dir: String,
+    /// Number of `.cptrace` files in the directory (no limit applied — this
+    /// is the truth, not a paginated subset of `/api/traces`).
+    trace_count: usize,
+    /// Sum of sizes of every `.cptrace` file in bytes.
+    total_bytes: u64,
+}
+
+async fn get_storage(State(state): State<Arc<ApiState>>) -> ApiResult<Json<StorageStats>> {
+    let mut count = 0usize;
+    let mut total = 0u64;
+    let read = std::fs::read_dir(&state.trace_dir).with_context(|| {
+        format!("reading trace dir {}", state.trace_dir.display())
+    })?;
+    for entry in read.flatten() {
+        if entry.path().extension().and_then(|s| s.to_str()) != Some("cptrace") {
+            continue;
+        }
+        if let Ok(md) = entry.metadata() {
+            count += 1;
+            total += md.len();
+        }
+    }
+    Ok(Json(StorageStats {
+        trace_dir: state.trace_dir.display().to_string(),
+        trace_count: count,
+        total_bytes: total,
+    }))
+}
+
+#[derive(Serialize)]
+struct RevealResponse {
+    revealed: bool,
+    /// What command we tried (`open` on macOS, `xdg-open` on Linux). Useful
+    /// for diagnostics if the spawn fails on a slim Docker image.
+    command: &'static str,
+}
+
+/// Opens the trace directory in the host OS file manager. Localhost-only by
+/// default; the daemon never binds externally without an explicit flag.
+async fn reveal_storage(State(state): State<Arc<ApiState>>) -> ApiResult<Json<RevealResponse>> {
+    #[cfg(target_os = "macos")]
+    let command = "open";
+    #[cfg(target_os = "linux")]
+    let command = "xdg-open";
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let command: &'static str = "";
+
+    if command.is_empty() {
+        return Err(ApiError {
+            code: StatusCode::NOT_IMPLEMENTED,
+            message: "reveal is only supported on macOS and Linux".to_string(),
+        });
+    }
+
+    let status = std::process::Command::new(command)
+        .arg(&state.trace_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .with_context(|| format!("spawning {} {}", command, state.trace_dir.display()))?;
+
+    Ok(Json(RevealResponse {
+        revealed: status.success(),
+        command,
+    }))
+}
+
+/// Phase 9b: Web Vitals + navigation timing posted by the toolbar JS at
+/// `pagehide`. We accept anything that parses as JSON (the metric set will
+/// evolve) and store it as a sidecar JSON next to the matching `.cptrace`
+/// — `<id>.client-metrics.json`.
+///
+/// Trace-id matching: the toolbar passes `pid` + `started_at_unix_micros`
+/// hints. We pick the trace whose started_at is closest to the hint AND
+/// whose pid suffix matches. Within a 2-second window of the hint, the
+/// closest trace wins. No match → store under a synthetic id so the data
+/// isn't lost (you can still query it manually).
+#[derive(Deserialize)]
+struct ClientMetricsBody {
+    #[serde(default)]
+    pid: u32,
+    #[serde(default)]
+    started_at_unix_micros: u64,
+    /// Anything else is preserved verbatim in the sidecar.
+    #[serde(flatten)]
+    extra: serde_json::Value,
+}
+
+async fn post_client_metrics(
+    State(state): State<Arc<ApiState>>,
+    Json(body): Json<ClientMetricsBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let trace_id = match find_matching_trace(&state.trace_dir, body.pid, body.started_at_unix_micros)
+    {
+        Some(id) => id,
+        None => {
+            // No close match — drop into an "orphan" file so debugging the
+            // toolbar wiring doesn't lose data silently.
+            format!("orphan-{}-{}", body.pid, body.started_at_unix_micros)
+        }
+    };
+
+    let sidecar = state
+        .trace_dir
+        .join(format!("{}.client-metrics.json", trace_id));
+
+    // Merge with any existing payload — multiple visibilitychange:hidden
+    // events can fire on the same page (tab background → foreground →
+    // background). Keep the latest values per key.
+    let mut merged = serde_json::Map::new();
+    if let Ok(existing) = std::fs::read(&sidecar) {
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_slice(&existing) {
+            merged = map;
+        }
+    }
+    if let serde_json::Value::Object(new_map) = body.extra {
+        for (k, v) in new_map {
+            merged.insert(k, v);
+        }
+    }
+    merged.insert("pid".into(), body.pid.into());
+    merged.insert(
+        "started_at_unix_micros".into(),
+        body.started_at_unix_micros.into(),
+    );
+
+    let bytes = serde_json::to_vec(&merged).context("serialising client metrics")?;
+    std::fs::write(&sidecar, bytes)
+        .with_context(|| format!("writing {}", sidecar.display()))?;
+
+    Ok(Json(serde_json::json!({"trace_id": trace_id})))
+}
+
+async fn get_client_metrics(
+    State(state): State<Arc<ApiState>>,
+    AxPath(id): AxPath<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let path = state.trace_dir.join(format!("{}.client-metrics.json", id));
+    if !path.exists() {
+        return Ok(Json(serde_json::json!(null)));
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parsing {}", path.display()))?;
+    Ok(Json(value))
+}
+
+/// Pick the trace whose filename (`<started_us>-<pid>.cptrace`) best matches
+/// the hint. A 2-second window around `started_at_unix_micros` keeps clock-
+/// skew between Laravel's `LARAVEL_START` and the C extension's RINIT
+/// `gettimeofday()` from breaking the lookup.
+fn find_matching_trace(
+    trace_dir: &Path,
+    pid: u32,
+    started_at_unix_micros: u64,
+) -> Option<String> {
+    let read = std::fs::read_dir(trace_dir).ok()?;
+    let suffix = format!("-{}", pid);
+    let mut best: Option<(u64, String)> = None;
+    for entry in read.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("cptrace") {
+            continue;
+        }
+        let stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if pid != 0 && !stem.ends_with(&suffix) {
+            continue;
+        }
+        let head = match stem.split_once('-') {
+            Some((head, _)) => head,
+            None => continue,
+        };
+        let trace_started: u64 = match head.parse() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        let delta = trace_started.abs_diff(started_at_unix_micros);
+        if delta > 2_000_000 {
+            continue;
+        }
+        match &best {
+            Some((bd, _)) if *bd <= delta => {}
+            _ => best = Some((delta, stem)),
+        }
+    }
+    best.map(|(_, id)| id)
 }
 
 async fn rerun_stub(

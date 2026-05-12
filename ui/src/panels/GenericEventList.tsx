@@ -2,6 +2,8 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { eventsAtCursor } from "../lib/store";
 import { fmtMs, safeJson, truncate } from "../lib/format";
 import type { EventJson } from "../lib/types";
+import { CodeView } from "../components/CodeView";
+import { AfterResponseBadge } from "../components/AfterResponseBadge";
 
 export function GenericEventList(props: { type: string; title: string; empty?: string }) {
   const [filter, setFilter] = createSignal("");
@@ -46,26 +48,87 @@ export function GenericEventList(props: { type: string; title: string; empty?: s
 
 function Row(props: { ev: EventJson; expanded: boolean; onToggle: () => void }) {
   const meta = () => describe(props.ev);
+  const afterResponse = () => {
+    const p = props.ev.payload as Record<string, unknown> | undefined;
+    return p?.after_response === true;
+  };
   return (
     <li class={`row-hover cursor-pointer ${meta().rowClass}`} onClick={props.onToggle}>
       <div class="grid grid-cols-[5rem_1fr_6rem] items-center gap-3 px-3 py-1.5">
         <span class={`pill ring-1 ring-inset normal-case ${meta().pillClass}`}>{meta().tag}</span>
-        <span class="mono truncate text-ink-200" title={meta().line}>
-          {truncate(meta().line, 140)}
+        <span class="mono truncate text-ink-200 flex items-center gap-2" title={meta().line}>
+          <span class="truncate">{truncate(meta().line, 140)}</span>
+          <Show when={afterResponse()}>
+            <AfterResponseBadge />
+          </Show>
         </span>
         <span class="mono text-ink-400 text-right">+{fmtMs(props.ev.at_micros)}</span>
       </div>
       <Show when={props.expanded}>
-        <pre class="mono text-[12px] text-ink-200 whitespace-pre-wrap bg-ink-950/60 border-t border-ink-700/60 px-4 py-3 overflow-x-auto">
-          {safeJson(props.ev.payload)}
-        </pre>
-        <Show when={props.ev.user_call_site}>
-          {(cs) => (
-            <div class="px-4 pb-3 text-[11px] mono text-ink-400">
-              at <span class="text-ink-200">{cs().file}:{cs().line}</span>
+        <div class="px-3 pb-3 space-y-3">
+          <Show
+            when={props.ev.type === "dump"}
+            fallback={
+              <div>
+                <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">Payload</div>
+                <pre class="mono text-[12px] text-ink-200 whitespace-pre-wrap bg-ink-950/60 border border-ink-700/60 rounded p-3 overflow-x-auto">
+                  {safeJson(props.ev.payload)}
+                </pre>
+              </div>
+            }
+          >
+            <div>
+              <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">Dumped value</div>
+              <pre class="mono text-[12px] text-ink-200 whitespace-pre-wrap bg-ink-950/60 border border-ink-700/60 rounded p-3 overflow-x-auto">
+                {stripAnsi(String((props.ev.payload as { rendered?: string } | undefined)?.rendered ?? ""))}
+              </pre>
             </div>
-          )}
-        </Show>
+          </Show>
+          <Show when={props.ev.user_call_site}>
+            {(cs) => (
+              <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-3">
+                <div>
+                  <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">
+                    Source · <span class="normal-case text-ink-300">{cs().file}:{cs().line}</span>
+                  </div>
+                  <Show
+                    when={cs().snippet.length > 0}
+                    fallback={<div class="text-xs text-ink-400 px-2">no snippet captured</div>}
+                  >
+                    <CodeView
+                      lines={cs().snippet}
+                      filename={cs().file}
+                      currentLine={cs().line}
+                      lang="php"
+                    />
+                  </Show>
+                </div>
+                <div>
+                  <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">
+                    Stack · <span class="normal-case text-ink-300">{(cs().stack ?? []).length} frames</span>
+                  </div>
+                  <Show
+                    when={(cs().stack ?? []).length > 0}
+                    fallback={<div class="text-xs text-ink-400 px-2">no stack</div>}
+                  >
+                    <ol class="space-y-0.5 text-[12px] mono">
+                      <For each={cs().stack ?? []}>
+                        {(s) => (
+                          <li class="row-hover px-2 py-1 rounded">
+                            <div class="text-ink-100 truncate" title={s.function}>{s.function}</div>
+                            <div class="text-[11px] text-ink-400 truncate" title={`${s.file}:${s.line}`}>
+                              {baseName(s.file)}:{s.line}
+                            </div>
+                          </li>
+                        )}
+                      </For>
+                    </ol>
+                  </Show>
+                </div>
+              </div>
+            )}
+          </Show>
+        </div>
       </Show>
     </li>
   );
@@ -175,10 +238,32 @@ function describe(e: EventJson): RowMeta {
         rowClass: "",
       };
     }
-    case "model": {
+    case "dump": {
+      const rendered = stripAnsi(String(p.rendered ?? "")).trim();
+      // First non-empty line is usually a useful one-liner: type + brief value.
+      // For multi-line dumps (arrays, objects), we show "type · N lines".
+      const firstLine = rendered.split("\n").find((l) => l.trim().length > 0) ?? "";
+      const lineCount = rendered.split("\n").filter((l) => l.trim().length > 0).length;
+      const summary = lineCount > 1
+        ? `${truncate(firstLine, 80)} … (${lineCount} lines)`
+        : firstLine;
       return {
-        tag: "model",
-        line: `${String(p.class ?? "")} ${String(p.event ?? "")}`,
+        tag: "dump",
+        line: summary,
+        pillClass: "bg-purple/10 text-purple ring-purple/30",
+        rowClass: "",
+      };
+    }
+    case "model": {
+      const action = String(p.action ?? p.event ?? "");
+      const cls = String(p.class ?? "");
+      const key = p.key !== undefined && p.key !== null ? `#${String(p.key)}` : "";
+      const changes = Array.isArray(p.changes) && p.changes.length > 0
+        ? ` · ${(p.changes as unknown[]).join(", ")}`
+        : "";
+      return {
+        tag: action || "model",
+        line: `${cls}${key ? " " + key : ""}${changes}`,
         pillClass: "bg-ink-700 text-ink-200 ring-ink-600",
         rowClass: "",
       };
@@ -191,4 +276,20 @@ function describe(e: EventJson): RowMeta {
         rowClass: "",
       };
   }
+}
+
+function baseName(p: string): string {
+  return p.split("/").pop() ?? p;
+}
+
+/**
+ * Strip ANSI color escape sequences (e.g. `\x1b[33m`) so dump output
+ * renders as readable plain text in the row title. The expanded panel
+ * shows the original rendered string in a <pre>; if it contains ANSI
+ * codes they appear as literal characters there too — we strip in the
+ * row component.
+ */
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[0-9;]*m/g, "");
 }

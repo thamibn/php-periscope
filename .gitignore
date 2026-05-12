@@ -57,4 +57,7 @@ vscode-extension/*.vsix
 /tmp/periscope/
 *.cptrace
 .playwright-mcp/
+
+# Screenshots — never commit; reference images live outside the repo
+/*.png
 clockwork-*.png

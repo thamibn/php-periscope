@@ -3,12 +3,15 @@ import { eventsAtCursor, summary } from "../lib/store";
 import { highlight } from "../lib/syntax";
 import { fmtMs, truncate } from "../lib/format";
 import type { EventJson } from "../lib/types";
+import { CodeView } from "../components/CodeView";
+import { AfterResponseBadge } from "../components/AfterResponseBadge";
 
 interface SqlPayload {
   sql?: string;
   bindings?: unknown[];
   time_ms?: number;
   connection?: string;
+  after_response?: boolean;
 }
 
 export function Queries() {
@@ -93,23 +96,74 @@ function QueryRow(props: { ev: EventJson; index: number; expanded: boolean; onTo
     <li class={`row-hover cursor-pointer ${rowClass()}`} onClick={props.onToggle}>
       <div class="grid grid-cols-[3rem_1fr_5rem_5rem_8rem] items-center gap-3 px-3 py-1.5">
         <span class="text-ink-400 text-right">#{props.index}</span>
-        {/* eslint-disable-next-line solid/no-innerhtml */}
-        <span class="truncate" innerHTML={highlight(sql(), "sql")} />
+        <span class="truncate flex items-center gap-2 min-w-0">
+          {/* eslint-disable-next-line solid/no-innerhtml */}
+          <span class="truncate" innerHTML={highlight(sql(), "sql")} />
+          <Show when={p().after_response}>
+            <AfterResponseBadge />
+          </Show>
+        </span>
         <span class={`text-right ${timeClass()}`}>{fmtMs((p().time_ms ?? 0) * 1000)}</span>
         <span class="text-ink-400 text-right">{p().connection ?? "—"}</span>
         <span class="text-ink-400 text-right truncate">{truncate(callSite(), 18)}</span>
       </div>
       <Show when={props.expanded}>
-        <div class="px-3 pb-3">
-          <pre class="mono text-[12px] text-ink-200 whitespace-pre-wrap bg-ink-950/60 border border-ink-700/60 rounded p-3 overflow-x-auto">{sql()}</pre>
+        <div class="px-3 pb-3 space-y-3">
+          <div>
+            <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">SQL</div>
+            <pre class="mono text-[12px] text-ink-200 whitespace-pre-wrap bg-ink-950/60 border border-ink-700/60 rounded p-3 overflow-x-auto">{sql()}</pre>
+          </div>
+
           <Show when={(p().bindings ?? []).length > 0}>
-            <div class="mt-2 text-[11px] text-ink-400 uppercase tracking-wider">Bindings</div>
-            <pre class="mono text-[12px] text-ink-300 whitespace-pre-wrap">{JSON.stringify(p().bindings, null, 2)}</pre>
+            <div>
+              <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">Bindings</div>
+              <pre class="mono text-[12px] text-ink-300 whitespace-pre-wrap bg-ink-950/60 border border-ink-700/60 rounded p-3 overflow-x-auto">{JSON.stringify(p().bindings, null, 2)}</pre>
+            </div>
           </Show>
+
           <Show when={props.ev.user_call_site}>
             {(cs) => (
-              <div class="mt-2 text-[11px] mono text-ink-400">
-                called at <span class="text-ink-200">{cs().file}:{cs().line}</span>
+              <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-3">
+                <div>
+                  <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">
+                    Source · <span class="normal-case text-ink-300">{cs().file}:{cs().line}</span>
+                  </div>
+                  <Show
+                    when={cs().snippet.length > 0}
+                    fallback={
+                      <div class="text-xs text-ink-400 px-2">no snippet captured</div>
+                    }
+                  >
+                    <CodeView
+                      lines={cs().snippet}
+                      filename={cs().file}
+                      currentLine={cs().line}
+                      lang="php"
+                    />
+                  </Show>
+                </div>
+                <div>
+                  <div class="text-[11px] text-ink-400 uppercase tracking-wider mb-1">
+                    Stack · <span class="normal-case text-ink-300">{(cs().stack ?? []).length} frames</span>
+                  </div>
+                  <Show
+                    when={(cs().stack ?? []).length > 0}
+                    fallback={<div class="text-xs text-ink-400 px-2">no stack</div>}
+                  >
+                    <ol class="space-y-0.5 text-[12px] mono">
+                      <For each={cs().stack ?? []}>
+                        {(s) => (
+                          <li class="row-hover px-2 py-1 rounded">
+                            <div class="text-ink-100 truncate" title={s.function}>{s.function}</div>
+                            <div class="text-[11px] text-ink-400 truncate" title={`${s.file}:${s.line}`}>
+                              {baseName(s.file)}:{s.line}
+                            </div>
+                          </li>
+                        )}
+                      </For>
+                    </ol>
+                  </Show>
+                </div>
               </div>
             )}
           </Show>

@@ -205,6 +205,14 @@ if [ -x "$DAEMON_BIN" ]; then
       pass "/api/file refuses paths outside the project root (403)" || \
       fail "/api/file traversal returned $FORBIDDEN_CODE (expected 403)"
 
+    # Storage stats (Phase 9b sidebar)
+    STORAGE=$(curl -fsS "http://127.0.0.1:$SMOKE_PORT/api/storage" 2>/dev/null || true)
+    echo "$STORAGE" | grep -q '"trace_count"' && \
+      echo "$STORAGE" | grep -q '"total_bytes"' && \
+      echo "$STORAGE" | grep -q '"trace_dir"' && \
+      pass "/api/storage returns trace_dir + count + bytes" || \
+      fail "/api/storage missing fields (got: $STORAGE)"
+
     # Clean-up endpoints (Phase 8b add)
     DEL=$(curl -fsS -X DELETE "http://127.0.0.1:$SMOKE_PORT/api/traces/$TRACE_ID" 2>/dev/null || true)
     echo "$DEL" | grep -q '"deleted":1' && \

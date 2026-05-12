@@ -1,7 +1,8 @@
-import { For, Show, createMemo } from "solid-js";
-import { trace } from "../lib/store";
+import { For, Show, createMemo, createResource } from "solid-js";
+import { cursorMicros, selectedTraceId, setCursorMicros, trace } from "../lib/store";
 import { fmtMs } from "../lib/format";
 import type { FrameJson } from "../lib/types";
+import { api, isStaticMode } from "../lib/api";
 
 // Frame-level flame graph derived from the existing Phase 2 enter/exit timings.
 // One <div> per frame, sized + positioned by enter_micros / duration_micros.
@@ -47,18 +48,23 @@ export function Performance() {
                 {(f) => {
                   const left = (f.enter_micros / total()) * 100;
                   const width = Math.max(0.05, (f.duration_micros / total()) * 100);
+                  const isCursorIn = () =>
+                    cursorMicros() >= f.enter_micros && cursorMicros() <= f.exit_micros;
                   return (
                     <div
-                      class="absolute rounded-sm overflow-hidden text-[10px] mono text-ink-100/95 px-1 leading-[18px] whitespace-nowrap"
+                      class="absolute rounded-sm overflow-hidden text-[10px] mono text-ink-100/95 px-1 leading-[18px] whitespace-nowrap cursor-pointer transition-shadow"
                       style={{
                         left: `${left}%`,
                         width: `${width}%`,
                         top: `${f.depth * rowHeight}px`,
                         height: `${rowHeight - 1}px`,
                         background: colorFor(f),
-                        "box-shadow": "inset 0 -1px 0 rgba(0,0,0,0.35)",
+                        "box-shadow": isCursorIn()
+                          ? "inset 0 -1px 0 rgba(0,0,0,0.35), 0 0 0 1px var(--accent, #6cf)"
+                          : "inset 0 -1px 0 rgba(0,0,0,0.35)",
                       }}
                       title={`${f.function}\n${f.file}:${f.line}\n${fmtMs(f.duration_micros)}`}
+                      onClick={() => setCursorMicros(f.enter_micros)}
                     >
                       {f.function}
                     </div>
@@ -69,6 +75,8 @@ export function Performance() {
           </Show>
         </div>
       </article>
+
+      <ClientMetrics />
 
       <article class="panel">
         <div class="panel-header">
@@ -95,5 +103,72 @@ export function Performance() {
         </ul>
       </article>
     </div>
+  );
+}
+
+/**
+ * Client-side timings posted by the floating toolbar JS at `pagehide`.
+ * Hidden when no metrics have been received for the current trace yet —
+ * so a backend-only request (CLI, JSON API) never shows an empty panel.
+ */
+function ClientMetrics() {
+  const [metrics] = createResource(
+    () => (isStaticMode() ? null : selectedTraceId()),
+    async (id) => (id ? api.getClientMetrics(id) : null),
+  );
+
+  const vitals = () => metrics()?.vitals ?? null;
+  const nav = () => metrics()?.navigation ?? null;
+
+  // Web Vitals "good" thresholds — straight from web.dev. Mirrors what the
+  // toolbar's tone helper does for the chip itself.
+  const lcpTone = (ms?: number | null) =>
+    ms == null ? "muted" : ms <= 2500 ? "ok" : ms <= 4000 ? "warn" : "danger";
+  const clsTone = (v?: number | null) =>
+    v == null ? "muted" : v <= 0.1 ? "ok" : v <= 0.25 ? "warn" : "danger";
+  const inpTone = (ms?: number | null) =>
+    ms == null ? "muted" : ms <= 200 ? "ok" : ms <= 500 ? "warn" : "danger";
+  const fcpTone = (ms?: number | null) =>
+    ms == null ? "muted" : ms <= 1800 ? "ok" : ms <= 3000 ? "warn" : "danger";
+  const ttfbTone = (ms?: number) =>
+    ms == null ? "muted" : ms <= 800 ? "ok" : ms <= 1800 ? "warn" : "danger";
+
+  const toneClass = (t: string) =>
+    t === "ok" ? "text-success" : t === "warn" ? "text-warn" : t === "danger" ? "text-danger" : "text-ink-400";
+
+  return (
+    <Show when={metrics()}>
+      <article class="panel">
+        <div class="panel-header">
+          <span>Client (Web Vitals)</span>
+          <span class="mono normal-case text-ink-400">in-browser timings</span>
+        </div>
+        <ul class="divide-y divide-ink-700/60 text-[12.5px] mono">
+          <Vital label="LCP"  value={vitals()?.lcp_ms} unit="ms" tone={toneClass(lcpTone(vitals()?.lcp_ms))} hint="largest contentful paint" />
+          <Vital label="CLS"  value={vitals()?.cls != null ? Number(vitals()!.cls!.toFixed(3)) : null} unit="" tone={toneClass(clsTone(vitals()?.cls))} hint="cumulative layout shift" />
+          <Vital label="INP"  value={vitals()?.inp_ms} unit="ms" tone={toneClass(inpTone(vitals()?.inp_ms))} hint="interaction to next paint" />
+          <Vital label="FCP"  value={vitals()?.fcp_ms} unit="ms" tone={toneClass(fcpTone(vitals()?.fcp_ms))} hint="first contentful paint" />
+          <Vital label="TTFB" value={nav()?.ttfb_ms} unit="ms" tone={toneClass(ttfbTone(nav()?.ttfb_ms))} hint="time to first byte" />
+          <Show when={nav()?.dom_content_loaded_ms != null}>
+            <Vital label="DCL"  value={nav()!.dom_content_loaded_ms} unit="ms" tone="text-ink-300" hint="DOMContentLoaded" />
+          </Show>
+          <Show when={nav()?.load_event_ms != null}>
+            <Vital label="Load" value={nav()!.load_event_ms} unit="ms" tone="text-ink-300" hint="window.onload" />
+          </Show>
+        </ul>
+      </article>
+    </Show>
+  );
+}
+
+function Vital(props: { label: string; value: number | null | undefined; unit: string; tone: string; hint: string }) {
+  return (
+    <li class="grid grid-cols-[5rem_1fr_8rem] items-center gap-3 px-3 py-1.5 row-hover">
+      <span class="text-ink-100">{props.label}</span>
+      <span class="text-ink-500 normal-case">{props.hint}</span>
+      <span class={`text-right ${props.tone}`}>
+        {props.value == null ? "—" : `${props.value}${props.unit ? ` ${props.unit}` : ""}`}
+      </span>
+    </li>
   );
 }

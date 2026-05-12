@@ -29,7 +29,7 @@ PHP_FUNCTION(periscope_checkpoint)
         Z_PARAM_ZVAL_OR_NULL(context)
     ZEND_PARSE_PARAMETERS_END();
 
-    if (PERISCOPE_G(trace) == NULL || PERISCOPE_G(disabled)) {
+    if (PERISCOPE_G(trace) == NULL || !PERISCOPE_G(enabled)) {
         RETURN_FALSE;
     }
 
@@ -90,7 +90,7 @@ PHP_FUNCTION(periscope_record_event)
         Z_PARAM_ARRAY_HT_OR_NULL(call_site)
     ZEND_PARSE_PARAMETERS_END();
 
-    if (PERISCOPE_G(trace) == NULL || PERISCOPE_G(disabled)) {
+    if (PERISCOPE_G(trace) == NULL || !PERISCOPE_G(enabled)) {
         RETURN_FALSE;
     }
 

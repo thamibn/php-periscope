@@ -62,6 +62,27 @@ pub enum DaemonMessage {
     Continue,
 }
 
+/// Phase 9b: messages from a browser tab to the daemon (and fanned out to
+/// every other connected tab). Currently the only inbound message is the
+/// timeline cursor — dragging the scrubber in one tab moves the cursor in
+/// every other tab viewing the same trace.
+///
+/// Wire format on the WebSocket is JSON text frames; the daemon never sends
+/// these to the C extension, only to other UI clients.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UiMessage {
+    /// User moved the timeline cursor. `at_micros` is the offset from
+    /// `Trace.meta.started_at_unix_micros`. `frame_id` is optional — the
+    /// scrubber may resolve to a frame, but a raw time drag has no frame.
+    CursorSet {
+        trace_id: String,
+        at_micros: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<u32>,
+    },
+}
+
 /// Bus shared across all daemon services.
 ///
 /// - `bus_tx`: broadcast channel — every connected ext message is fanned
@@ -72,19 +93,36 @@ pub enum DaemonMessage {
 pub struct LinkBus {
     bus_tx: broadcast::Sender<ExtMessage>,
     outbound: Mutex<Vec<mpsc::Sender<DaemonMessage>>>,
+    /// Phase 9b: UI ↔ UI broadcast (e.g. timeline cursor). Lives on the same
+    /// bus type so the WS handler can fan out to every connected tab without
+    /// needing a second pipeline.
+    ui_tx: broadcast::Sender<UiMessage>,
 }
 
 impl LinkBus {
     pub fn new() -> Self {
         let (bus_tx, _) = broadcast::channel(256);
+        let (ui_tx, _) = broadcast::channel(256);
         Self {
             bus_tx,
             outbound: Mutex::new(Vec::new()),
+            ui_tx,
         }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ExtMessage> {
         self.bus_tx.subscribe()
+    }
+
+    /// Subscribe to UI-broadcast messages (cursor moves, etc.).
+    pub fn subscribe_ui(&self) -> broadcast::Receiver<UiMessage> {
+        self.ui_tx.subscribe()
+    }
+
+    /// Publish a UI message from one tab to every connected tab. Returns the
+    /// number of subscribers the message was delivered to (best-effort).
+    pub fn publish_ui(&self, msg: UiMessage) -> usize {
+        self.ui_tx.send(msg).unwrap_or(0)
     }
 
     /// Register a per-client outbound channel. Returns the receiver the
