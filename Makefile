@@ -1,4 +1,4 @@
-.PHONY: extension extension-clean clean test test-phpt smoke smoke-laravel proto-gen trace-clean help
+.PHONY: extension extension-clean clean test test-phpt smoke smoke-laravel proto-gen trace-clean install uninstall help
 
 PERISCOPE_TRACE_DIR ?= /tmp/periscope
 
@@ -13,6 +13,14 @@ help:
 	@echo "  make clean            Full clean"
 	@echo "  make test             Run the test suite"
 	@echo "  make trace-clean      Delete all .cptrace files in PERISCOPE_TRACE_DIR ($(PERISCOPE_TRACE_DIR))"
+	@echo "  make install          One-shot install — build + drop the extension and daemon binaries"
+	@echo "  make uninstall        Reverse make install"
+
+install:
+	@bash scripts/install.sh $(INSTALL_FLAGS)
+
+uninstall:
+	@bash scripts/uninstall.sh $(UNINSTALL_FLAGS)
 
 proto-gen:
 	@if [ -z "$(CAPNP)" ]; then \
