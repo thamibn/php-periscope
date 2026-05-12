@@ -1,0 +1,147 @@
+{
+  "name": "php-periscope",
+  "displayName": "PHP Periscope",
+  "description": "Live observability + time-travel debugger for PHP/Laravel. Scrub through any HTTP request, see every SQL/log/cache/job/event, and inspect captured variables at every frame.",
+  "version": "0.1.0",
+  "publisher": "periscopephp",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/thamibn/php-periscope",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thamibn/php-periscope.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/thamibn/php-periscope/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Debuggers"],
+  "keywords": ["php", "laravel", "debugger", "telescope", "xdebug", "observability", "time-travel"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onDebugResolve:periscope",
+    "onCommand:periscope.openUi",
+    "onCommand:periscope.startDaemon",
+    "onCommand:periscope.stopDaemon"
+  ],
+  "contributes": {
+    "breakpoints": [
+      { "language": "php" }
+    ],
+    "debuggers": [
+      {
+        "type": "periscope",
+        "label": "PHP Periscope",
+        "languages": ["php"],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "tracePath": {
+                "type": "string",
+                "description": "Absolute path to a .cptrace file to open in replay mode.",
+                "default": "${workspaceFolder}/tmp/periscope/latest.cptrace"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Halt at the first userland frame after entering the trace.",
+                "default": false
+              },
+              "daemonPath": {
+                "type": "string",
+                "description": "Absolute path to the periscope-daemon binary. Defaults to whatever's first in PATH.",
+                "default": "periscope-daemon"
+              }
+            }
+          },
+          "attach": {
+            "properties": {
+              "tracePath": {
+                "type": "string",
+                "description": "Absolute path to a .cptrace file (live or recorded).",
+                "default": "${workspaceFolder}/tmp/periscope/latest.cptrace"
+              },
+              "daemonPath": {
+                "type": "string",
+                "description": "Absolute path to the periscope-daemon binary.",
+                "default": "periscope-daemon"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "periscope",
+            "request": "launch",
+            "name": "Periscope: open latest trace",
+            "tracePath": "${workspaceFolder}/tmp/periscope/latest.cptrace",
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Periscope: open trace",
+            "description": "Replay a recorded .cptrace file with full DAP stepping (incl. step-back).",
+            "body": {
+              "type": "periscope",
+              "request": "launch",
+              "name": "Periscope: open latest trace",
+              "tracePath": "^\"\\${workspaceFolder}/tmp/periscope/latest.cptrace\"",
+              "stopOnEntry": false
+            }
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "periscope.openUi",
+        "title": "Periscope: Open Browser UI",
+        "category": "Periscope"
+      },
+      {
+        "command": "periscope.startDaemon",
+        "title": "Periscope: Start Daemon",
+        "category": "Periscope"
+      },
+      {
+        "command": "periscope.stopDaemon",
+        "title": "Periscope: Stop Daemon",
+        "category": "Periscope"
+      }
+    ],
+    "configuration": {
+      "title": "Periscope",
+      "properties": {
+        "periscope.daemonPath": {
+          "type": "string",
+          "default": "periscope-daemon",
+          "description": "Absolute path to the periscope-daemon binary. Defaults to whatever's first in PATH."
+        },
+        "periscope.daemonUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:9999",
+          "description": "Base URL of the running daemon's HTTP+WebSocket API. The status bar pings this to show liveness."
+        },
+        "periscope.autoStartDaemon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Spawn the daemon automatically when the extension activates and shut it down when VSCode closes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.4.0"
+  }
+}
