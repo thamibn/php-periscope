@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package packagerversion="1.10.13" version="2.0"
+         xmlns="http://pear.php.net/dtd/package-2.0"
+         xmlns:tasks="http://pear.php.net/dtd/tasks-1.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pear.php.net/dtd/tasks-1.0
+                             http://pear.php.net/dtd/tasks-1.0.xsd
+                             http://pear.php.net/dtd/package-2.0
+                             http://pear.php.net/dtd/package-2.0.xsd">
+    <name>periscope</name>
+    <channel>pecl.php.net</channel>
+    <summary>Live observability + time-travel debugger for PHP (engine-level).</summary>
+    <description>
+        php-periscope is a Zend Observer API extension that records every
+        userland function call, captured arguments, return values, SQL,
+        log lines, cache ops, jobs, events, exceptions and outbound HTTP
+        into a compact Cap'n Proto trace file. Pair with the
+        periscope-daemon (Rust) and the SolidJS UI to scrub through any
+        request and inspect what the code was doing at any moment.
+
+        v1 is Laravel-only on the framework side (via the
+        periscopephp/laravel Composer adapter), but this extension is
+        framework-agnostic: any PHP 8.3 SAPI is supported.
+
+        Build requirements: Cap'n Proto C++ library
+        (brew install capnp / apt-get install libcapnp-dev) plus a C++17
+        toolchain.
+    </description>
+
+    <lead>
+        <name>Thamsanca Ntuli</name>
+        <user>thamibn</user>
+        <email>thamibn@live.co.za</email>
+        <active>yes</active>
+    </lead>
+
+    <date>2026-05-12</date>
+    <time>12:00:00</time>
+
+    <version>
+        <release>0.1.0</release>
+        <api>0.1.0</api>
+    </version>
+    <stability>
+        <release>alpha</release>
+        <api>alpha</api>
+    </stability>
+
+    <license uri="https://github.com/thamibn/php-periscope/blob/main/LICENSE">proprietary</license>
+
+    <notes>
+        Initial alpha release. PHP 8.3 only. macOS + Linux.
+        See https://github.com/thamibn/php-periscope for changelog.
+    </notes>
+
+    <contents>
+        <dir name="/">
+            <file name="config.m4"            role="src"/>
+            <file name="php_periscope.h"      role="src"/>
+            <file name="periscope.c"          role="src"/>
+            <file name="periscope_capture.c"  role="src"/>
+            <file name="periscope_capture.h"  role="src"/>
+            <file name="periscope_filter.c"   role="src"/>
+            <file name="periscope_filter.h"   role="src"/>
+            <file name="periscope_userland.c" role="src"/>
+            <file name="periscope_userland.h" role="src"/>
+            <file name="periscope_daemon_link.c" role="src"/>
+            <file name="periscope_daemon_link.h" role="src"/>
+            <file name="periscope_trace.cc"   role="src"/>
+            <file name="periscope_trace.h"    role="src"/>
+            <file name="trace.capnp.cpp"      role="src"/>
+            <file name="trace.capnp.h"        role="src"/>
+            <dir name="tests">
+                <file name="001-loads.phpt"                  role="test"/>
+                <file name="002-version.phpt"                role="test"/>
+                <file name="003-phpinfo.phpt"                role="test"/>
+                <file name="004-no-functions.sh"             role="test"/>
+                <file name="004-userland-functions.phpt"     role="test"/>
+                <file name="010-observer-userland.phpt"      role="test"/>
+                <file name="011-observer-skip-internal.phpt" role="test"/>
+                <file name="012-observer-include-internal.phpt" role="test"/>
+                <file name="013-observer-method.phpt"        role="test"/>
+                <file name="014-observer-recursion.phpt"     role="test"/>
+                <file name="020-capture-array.phpt"          role="test"/>
+                <file name="021-capture-object.phpt"         role="test"/>
+                <file name="022-capture-enum.phpt"           role="test"/>
+                <file name="023-capture-cycle.phpt"          role="test"/>
+                <file name="024-capture-enum-method.phpt"    role="test"/>
+                <file name="025-capture-lazy.phpt"           role="test"/>
+                <file name="026-capture-string-truncation.phpt" role="test"/>
+                <file name="027-capture-depth-limit.phpt"    role="test"/>
+                <file name="028-namespace-filter.phpt"       role="test"/>
+                <file name="029-disable-env.phpt"            role="test"/>
+                <file name="030-trace-write.phpt"            role="test"/>
+                <file name="031-trace-retention.phpt"        role="test"/>
+                <file name="040-userland-api.phpt"           role="test"/>
+                <file name="041-userland-event-recorded.phpt" role="test"/>
+                <file name="050-mode-header-off.phpt"        role="test"/>
+                <file name="051-mode-header-noop-when-cli.phpt" role="test"/>
+            </dir>
+        </dir>
+    </contents>
+
+    <dependencies>
+        <required>
+            <php>
+                <min>8.3.0</min>
+                <max>8.4.99</max>
+            </php>
+            <pearinstaller>
+                <min>1.10.0</min>
+            </pearinstaller>
+        </required>
+    </dependencies>
+
+    <providesextension>periscope</providesextension>
+    <extsrcrelease>
+        <configureoption name="enable-periscope"
+                         default="yes"
+                         prompt="Enable periscope support?"/>
+    </extsrcrelease>
+</package>
