@@ -20,6 +20,7 @@ use Periscope\Laravel\Bus\JobDispatchTracker;
 use Periscope\Laravel\Bus\TerminatingTracker;
 use Periscope\Laravel\Http\InjectToolbar;
 use Periscope\Laravel\Http\UiController;
+use Periscope\Laravel\Mcp\McpServiceProvider;
 use Periscope\Laravel\Detection\AiAdvisor;
 use Periscope\Laravel\Detection\NPlusOneDetector;
 use Periscope\Laravel\Detection\SlowQueryAnalyzer;
@@ -98,6 +99,9 @@ final class PeriscopeServiceProvider extends ServiceProvider
                 resolver: $app->make(CallSiteResolver::class),
             )
         );
+
+        // Delegate MCP wiring to a dedicated sub-provider (SRP).
+        $this->app->register(McpServiceProvider::class);
 
         $this->registerJobDispatchTracker();
     }

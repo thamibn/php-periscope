@@ -14,9 +14,15 @@ abstract class TestCase extends Orchestra
      */
     protected function getPackageProviders($app): array
     {
-        return [
+        $providers = [
             PeriscopeServiceProvider::class,
         ];
+        // laravel/mcp is a suggested dependency — register its provider so
+        // Pest tests for the MCP server have its container bindings active.
+        if (class_exists(\Laravel\Mcp\Server\McpServiceProvider::class)) {
+            $providers[] = \Laravel\Mcp\Server\McpServiceProvider::class;
+        }
+        return $providers;
     }
 
     protected function defineEnvironment($app): void

@@ -189,6 +189,28 @@ return [
         'open_url' => env('PERISCOPE_TOOLBAR_OPEN_URL'),
     ],
 
+    /*
+    |---------------------------------------------------------------------
+    | MCP server (AI-native access)
+    |---------------------------------------------------------------------
+    | Auto-registers a Laravel MCP server under the handle `periscope`
+    | when `laravel/mcp` is installed. The server exposes 8 tools that
+    | proxy to the local daemon's `/api/*` so AI agents (Claude / Cursor
+    | / Codex / etc) can list traces, fetch summaries + insights, query
+    | events with our JSON-path filter language, time-travel to a moment
+    | with get_state, and read source slices.
+    |
+    | Wire into Claude Code:
+    |   claude mcp add periscope -- php artisan mcp:start periscope
+    |
+    | The MCP server is local-only (stdio); it never reaches the public
+    | internet. Disable with PERISCOPE_MCP_ENABLED=false.
+    */
+    'mcp' => [
+        'enabled' => (bool) env('PERISCOPE_MCP_ENABLED', true),
+        'handle'  => env('PERISCOPE_MCP_HANDLE', 'periscope'),
+    ],
+
     'vendor_skip' => [
         '/vendor/laravel/',
         '/vendor/illuminate/',

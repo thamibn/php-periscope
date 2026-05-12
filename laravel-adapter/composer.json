@@ -10,12 +10,14 @@
         "illuminate/support": "^11.0 || ^12.0 || ^13.0"
     },
     "require-dev": {
+        "laravel/mcp": "^0.7",
         "orchestra/testbench": "^9.0 || ^10.0",
         "pestphp/pest": "^3.0",
         "pestphp/pest-plugin-laravel": "^3.0"
     },
     "suggest": {
-        "laravel/ai": "Enables AI-powered slow-query / N+1 / exception / error-log advisories via the AiAdvisor. Picks any provider — Ollama (free), OpenRouter (free tier), OpenAI, Anthropic, Gemini, Groq, etc."
+        "laravel/ai": "Enables AI-powered slow-query / N+1 / exception / error-log advisories via the AiAdvisor. Picks any provider — Ollama (free), OpenRouter (free tier), OpenAI, Anthropic, Gemini, Groq, etc.",
+        "laravel/mcp": "Exposes periscope traces to AI agents (Claude / Cursor / Codex) via the Model Context Protocol. After install: `claude mcp add periscope -- php artisan mcp:start periscope`."
     },
     "autoload": {
         "psr-4": {
