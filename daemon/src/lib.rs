@@ -5,7 +5,9 @@
 
 pub mod api;
 pub mod dap;
+pub mod event_filter;
 pub mod ext_link;
+pub mod grouping;
 pub mod insights;
 pub mod replay;
 pub mod summary;

@@ -830,11 +830,8 @@ These features operate on the data the Phase 5 watchers already emit; no new C-e
 - Each panel has a free-text filter bar wired to the same endpoint. Saved filters per project (sidebar bookmarks).
 - Works against any panel because every emitted payload is already a structured JSON tree.
 
-#### Failed-jobs panel
-- Reads Laravel's `failed_jobs` table via a daemon endpoint (`GET /api/failed-jobs`) — we don't shadow Laravel's storage.
-- Per row: stack trace + AI suggestion (already emitted by ExceptionHook + AiAdvisor), originating-request deep link (the trace where JobHook recorded `phase=queued`), attempts, queue/connection, first/last failure timestamps.
-- Actions: retry (single, bulk-by-class, bulk-by-exception), forget, retry-with-edited-payload.
-- Differentiators: time-travel into the failed run's recorded trace, diff vs last successful run of the same class, pattern-grouped failures across last 24h, AI verdict "code at `Foo.php:42` still has the bug — retry anyway?", one-click Pest repro generator.
+#### ~~Failed-jobs panel~~ — dropped from v1 (2026-05-12)
+Originally planned to mirror Laravel's `failed_jobs` table inside the UI with retry/forget actions. Dropped because the originating-request deep-link from a failed `JobProcessing` event to its recorded trace (via the existing Jobs panel + time-travel scrubber) already covers the debugging story, and a separate failed-jobs panel would duplicate Horizon. Revisit if user demand surfaces post-v1.
 
 #### Static export + drag-and-drop load (v1, scoped into Phase 9b)
 

@@ -398,15 +398,32 @@ async fn list_exceptions(
 struct EventQuery {
     #[serde(default)]
     r#type: Option<String>,
+    #[serde(default)]
+    group: Option<bool>,
+    #[serde(default)]
+    filter: Option<String>,
+}
+
+/// Two shapes share the same endpoint:
+///   - `?group=true` → `Vec<EventGroup>` (rows collapsed by fingerprint)
+///   - otherwise   → `Vec<EventJson>` (raw, time-ordered)
+/// Encoded as untagged so the JSON wire stays a plain top-level array in
+/// both cases — UI panels pick the right TypeScript shape from the request
+/// they made.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum EventsResponse {
+    Raw(Vec<EventJson>),
+    Grouped(Vec<crate::grouping::EventGroup>),
 }
 
 async fn list_events(
     State(state): State<Arc<ApiState>>,
     AxPath(id): AxPath<String>,
     Query(q): Query<EventQuery>,
-) -> ApiResult<Json<Vec<EventJson>>> {
+) -> ApiResult<Json<EventsResponse>> {
     let trace = open_trace(&state, &id)?;
-    let events = match q.r#type {
+    let mut events: Vec<EventJson> = match q.r#type {
         Some(t) => trace
             .observability_events
             .into_iter()
@@ -414,7 +431,22 @@ async fn list_events(
             .collect(),
         None => trace.observability_events,
     };
-    Ok(Json(events))
+    if let Some(expr) = q.filter.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let filter = crate::event_filter::Filter::parse(expr).map_err(ApiError::bad_request)?;
+        if !filter.is_empty() {
+            events.retain(|e| {
+                let as_value = serde_json::to_value(e).unwrap_or(serde_json::Value::Null);
+                filter.matches(&as_value)
+            });
+        }
+    }
+    if q.group.unwrap_or(false) {
+        Ok(Json(EventsResponse::Grouped(
+            crate::grouping::group_events(events),
+        )))
+    } else {
+        Ok(Json(EventsResponse::Raw(events)))
+    }
 }
 
 #[derive(Serialize)]
@@ -889,6 +921,12 @@ impl ApiError {
     fn forbidden(msg: impl Into<String>) -> Self {
         Self {
             code: StatusCode::FORBIDDEN,
+            message: msg.into(),
+        }
+    }
+    fn bad_request(msg: impl Into<String>) -> Self {
+        Self {
+            code: StatusCode::BAD_REQUEST,
             message: msg.into(),
         }
     }

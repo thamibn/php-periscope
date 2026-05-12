@@ -1,6 +1,8 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { eventsAtCursor } from "../lib/store";
 import { fmtMs, safeJson, truncate } from "../lib/format";
+import { groupEvents, type EventGroup } from "../lib/grouping";
+import { parseFilter } from "../lib/event_filter";
 import type { EventJson } from "../lib/types";
 import { CodeView } from "../components/CodeView";
 import { AfterResponseBadge } from "../components/AfterResponseBadge";
@@ -8,13 +10,24 @@ import { AfterResponseBadge } from "../components/AfterResponseBadge";
 export function GenericEventList(props: { type: string; title: string; empty?: string }) {
   const [filter, setFilter] = createSignal("");
   const [open, setOpen] = createSignal<number | null>(null);
+  const [grouped, setGrouped] = createSignal(false);
+  const [expandedGroup, setExpandedGroup] = createSignal<string | null>(null);
 
   const items = createMemo(() => eventsAtCursor().filter((e) => e.type === props.type));
-  const filtered = createMemo(() => {
-    const q = filter().toLowerCase();
-    if (!q) return items();
-    return items().filter((e) => safeJson(e.payload, 0).toLowerCase().includes(q));
+  const parsed = createMemo(() => parseFilter(filter()));
+  const filterError = createMemo(() => {
+    const r = parsed();
+    return r.ok ? null : r.error;
   });
+  const filtered = createMemo(() => {
+    const r = parsed();
+    if (!r.ok || r.filter.isEmpty) return items();
+    return items().filter((e) => r.filter.matches(e));
+  });
+  const groups = createMemo<EventGroup[]>(() => groupEvents(filtered()));
+  // Hide the grouping toggle when every event already has count=1; pressing
+  // it wouldn't change anything visible.
+  const canGroup = createMemo(() => groups().some((g) => g.count > 1));
 
   return (
     <article class="panel">
@@ -22,27 +35,132 @@ export function GenericEventList(props: { type: string; title: string; empty?: s
         <div class="flex items-center gap-2 normal-case">
           <span class="text-ink-100">{props.title}</span>
           <span class="mono text-ink-400">{items().length}</span>
+          <Show when={grouped() && groups().length !== items().length}>
+            <span class="mono text-ink-500 text-[11px]">· {groups().length} unique</span>
+          </Show>
         </div>
-        <input
-          class="bg-ink-800 border border-ink-700 text-ink-200 rounded px-2 py-1 text-xs mono w-72 focus:outline-none focus:border-accent normal-case"
-          placeholder="filter payload"
-          value={filter()}
-          onInput={(e) => setFilter(e.currentTarget.value)}
-        />
+        <div class="flex items-center gap-2">
+          <Show when={canGroup()}>
+            <button
+              type="button"
+              class={`mono text-[11px] px-2 py-1 rounded border ${
+                grouped()
+                  ? "bg-accent/10 text-accent border-accent/40"
+                  : "bg-ink-800 text-ink-300 border-ink-700 hover:border-ink-600"
+              }`}
+              title="Collapse identical events into a single row. Different variables stay separate."
+              onClick={() => setGrouped(!grouped())}
+            >
+              {grouped() ? "grouped" : "group"}
+            </button>
+          </Show>
+          <div class="flex flex-col items-end">
+            <input
+              class={`bg-ink-800 border text-ink-200 rounded px-2 py-1 text-xs mono w-72 focus:outline-none normal-case ${
+                filterError() ? "border-rose-500/60 focus:border-rose-500" : "border-ink-700 focus:border-accent"
+              }`}
+              placeholder='filter — text or payload.level:error'
+              title='Substring, or structured: payload.level:error AND payload.context.user_id:42'
+              value={filter()}
+              onInput={(e) => setFilter(e.currentTarget.value)}
+            />
+            <Show when={filterError()}>
+              <span class="text-[10.5px] text-rose-400 mt-0.5 max-w-72 truncate" title={filterError() ?? ""}>
+                {filterError()}
+              </span>
+            </Show>
+          </div>
+        </div>
       </div>
       <Show
         when={filtered().length > 0}
         fallback={<div class="px-4 py-6 text-sm text-ink-400 text-center">{props.empty ?? "Nothing to show."}</div>}
       >
-        <ul class="divide-y divide-ink-700/60 text-[12.5px]">
-          <For each={filtered()}>
-            {(e) => (
-              <Row ev={e} expanded={open() === e.id} onToggle={() => setOpen(open() === e.id ? null : e.id)} />
-            )}
-          </For>
-        </ul>
+        <Show
+          when={grouped()}
+          fallback={
+            <ul class="divide-y divide-ink-700/60 text-[12.5px]">
+              <For each={filtered()}>
+                {(e) => (
+                  <Row ev={e} expanded={open() === e.id} onToggle={() => setOpen(open() === e.id ? null : e.id)} />
+                )}
+              </For>
+            </ul>
+          }
+        >
+          <ul class="divide-y divide-ink-700/60 text-[12.5px]">
+            <For each={groups()}>
+              {(g) => (
+                <GroupRow
+                  group={g}
+                  expanded={expandedGroup() === g.fingerprint}
+                  onToggle={() => setExpandedGroup(expandedGroup() === g.fingerprint ? null : g.fingerprint)}
+                  openOccurrence={open()}
+                  onToggleOccurrence={(id) => setOpen(open() === id ? null : id)}
+                />
+              )}
+            </For>
+          </ul>
+        </Show>
       </Show>
     </article>
+  );
+}
+
+function GroupRow(props: {
+  group: EventGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  openOccurrence: number | null;
+  onToggleOccurrence: (id: number) => void;
+}) {
+  const single = () => props.group.count === 1;
+  return (
+    <li>
+      <Show
+        when={!single()}
+        fallback={
+          <Row
+            ev={props.group.sample}
+            expanded={props.openOccurrence === props.group.sample.id}
+            onToggle={() => props.onToggleOccurrence(props.group.sample.id)}
+          />
+        }
+      >
+        <div
+          class="row-hover cursor-pointer grid grid-cols-[5rem_1fr_6rem] items-center gap-3 px-3 py-1.5"
+          onClick={props.onToggle}
+        >
+          <span class="pill ring-1 ring-inset normal-case bg-ink-700 text-ink-100 ring-ink-600 mono">
+            {props.group.count}×
+          </span>
+          <span class="mono truncate text-ink-200 flex items-center gap-2">
+            <span class="truncate" title={describe(props.group.sample).line}>
+              {truncate(describe(props.group.sample).line, 140)}
+            </span>
+          </span>
+          <span class="mono text-ink-500 text-right text-[11px]">
+            +{fmtMs(props.group.firstAtMicros)}
+            <Show when={props.group.lastAtMicros !== props.group.firstAtMicros}>
+              <> … {fmtMs(props.group.lastAtMicros)}</>
+            </Show>
+          </span>
+        </div>
+        <Show when={props.expanded}>
+          <ul class="divide-y divide-ink-700/40 bg-ink-900/40">
+            <For each={props.group.occurrences}>
+              {(e) => (
+                <Row
+                  ev={e}
+                  expanded={props.openOccurrence === e.id}
+                  onToggle={() => props.onToggleOccurrence(e.id)}
+                />
+              )}
+            </For>
+          </ul>
+        </Show>
+      </Show>
+    </li>
   );
 }
 
