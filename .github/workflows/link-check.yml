@@ -1,0 +1,76 @@
+name: Link check
+
+# Lychee runs across every markdown file in the repo (README, /docs,
+# /docs/site, /thoughts, etc.) and over the built VitePress site.
+# Catches stale GitHub edit-links, dead doc cross-references, and
+# missing anchors before they ship.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly run picks up external link rot (linked blog posts, packagist
+    # pages, etc.) even when nothing in-repo has changed.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: link-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lychee:
+    name: lychee
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore lychee cache
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: docs/site/package-lock.json
+
+      - name: Install + build docs site
+        run: |
+          npm ci
+          npm run build
+        working-directory: docs/site
+
+      - name: Run lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Glob the markdown trees + the built docs site so we catch
+          # both source-level dead refs and the rendered output.
+          args: >
+            --cache
+            --max-cache-age 1d
+            --no-progress
+            --accept 200..=299,401,403,429
+            --exclude-path node_modules
+            --exclude-path .vitepress/cache
+            --exclude-path target
+            --exclude-path vendor
+            --exclude-path dist
+            --exclude '^https?://localhost'
+            --exclude '^https?://127\.0\.0\.1'
+            --exclude '^https?://app\.test'
+            --exclude '^mailto:'
+            './**/*.md'
+            './docs/site/.vitepress/dist/**/*.html'
+          fail: true
+          format: markdown
+          jobSummary: true
