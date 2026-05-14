@@ -1,8 +1,9 @@
 {
-    "name": "periscopephp/laravel",
-    "description": "Laravel adapter for php-periscope — wires Telescope-tier observability events into the periscope C extension's trace.",
+    "_comment": "Dev-only manifest. Source of truth for end users is the root /composer.json (thamibn/php-periscope-laravel). This file exists so contributors can `cd laravel-adapter && composer install` to run Pest in isolation.",
+    "name": "thamibn/php-periscope-laravel-dev",
+    "description": "Dev shadow of thamibn/php-periscope-laravel — DO NOT install from Packagist; the published package lives at repo root.",
     "type": "library",
-    "license": "proprietary",
+    "license": "MIT",
     "keywords": ["laravel", "debugging", "observability", "telescope", "debugbar", "xdebug", "periscope"],
     "require": {
         "php": "^8.3",

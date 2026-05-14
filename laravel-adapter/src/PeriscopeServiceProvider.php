@@ -49,7 +49,7 @@ use Periscope\Laravel\Support\CallSiteResolver;
  * Boot point for the Laravel adapter.
  *
  * Auto-discovered via composer.json's `extra.laravel.providers`, so a
- * fresh `composer require periscopephp/laravel` is the only setup
+ * fresh `composer require thamibn/php-periscope-laravel` is the only setup
  * step. All runtime knobs live in .env (see config/periscope.php).
  */
 final class PeriscopeServiceProvider extends ServiceProvider
@@ -273,7 +273,7 @@ final class PeriscopeServiceProvider extends ServiceProvider
         $candidates = [
             // Sibling to the package (path-repo / monorepo development)
             __DIR__ . '/../../../ui/dist',
-            // composer-installed: vendor/periscopephp/laravel/ → vendor/../../ui/dist
+            // composer-installed: vendor/thamibn/php-periscope-laravel/ → vendor/../../ui/dist
             base_path('ui/dist'),
             // app's own published copy
             base_path('public/vendor/periscope'),

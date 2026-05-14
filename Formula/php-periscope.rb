@@ -17,7 +17,7 @@ class PhpPeriscope < Formula
   version "0.1.0"
   # Update sha256 at release time; placeholder for the v0.1.0-dev branch.
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
-  license "Proprietary"
+  license "MIT"
 
   head "https://github.com/thamibn/php-periscope.git", branch: "main"
 

@@ -19,7 +19,7 @@
         request and inspect what the code was doing at any moment.
 
         v1 is Laravel-only on the framework side (via the
-        periscopephp/laravel Composer adapter), but this extension is
+        thamibn/php-periscope-laravel Composer adapter), but this extension is
         framework-agnostic: any PHP 8.3 SAPI is supported.
 
         Build requirements: Cap'n Proto C++ library
@@ -30,7 +30,7 @@
     <lead>
         <name>Thamsanca Ntuli</name>
         <user>thamibn</user>
-        <email>thamibn@live.co.za</email>
+        <email>thamibn@gmail.com</email>
         <active>yes</active>
     </lead>
 

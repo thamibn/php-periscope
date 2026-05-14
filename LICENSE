@@ -1,21 +1,21 @@
-Copyright (c) 2026 Thamsanca Ntuli. All Rights Reserved.
+MIT License
 
-This software and its source code are proprietary and confidential.
+Copyright (c) 2026 Thamsanca Ntuli
 
-No license is granted at this time. The licensing model — whether commercial,
-source-available, dual-license, or open-source — is undecided and will be
-finalized once the project reaches a public release.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Until a final license is published in this file:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-- You may NOT copy, modify, redistribute, sublicense, or use this software
-  in any form without explicit written permission from the copyright holder.
-- You may NOT publish, mirror, or fork this repository publicly.
-- Internal evaluation by individuals explicitly granted access by the
-  copyright holder is permitted solely for the purpose of contributing to,
-  testing, or reviewing this project.
-
-The copyright holder reserves all rights to relicense this software at any
-time, including under open-source terms, commercial terms, or a combination.
-
-Contact: Thamsanca Ntuli (thamsancan@ringier.co.za)
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

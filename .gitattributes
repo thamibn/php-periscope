@@ -1,0 +1,32 @@
+# Composer / Packagist `git archive` exclusions.
+# Anything tagged `export-ignore` is stripped from the dist zip Composer
+# downloads when a user runs `composer require thamibn/php-periscope-laravel`.
+# We ship only what the Laravel adapter needs (src, config, resources, README,
+# LICENSE) — the C extension, Rust daemon, frontend UI, IDE plugins, and
+# project tooling stay out of vendor/.
+
+.claude/                         export-ignore
+.editorconfig                    export-ignore
+.github/                         export-ignore
+.gitattributes                   export-ignore
+.gitignore                       export-ignore
+.playwright-mcp/                 export-ignore
+.vscode/                         export-ignore
+.wrangler/                       export-ignore
+daemon/                          export-ignore
+docs/                            export-ignore
+extension/                       export-ignore
+Formula/                         export-ignore
+jetbrains-plugin/                export-ignore
+proto/                           export-ignore
+scripts/                         export-ignore
+tests/                           export-ignore
+thoughts/                        export-ignore
+ui/                              export-ignore
+vscode-extension/                export-ignore
+
+# The adapter's own dev manifest + lockfile + tests + vendor are dev-only.
+laravel-adapter/composer.json    export-ignore
+laravel-adapter/composer.lock    export-ignore
+laravel-adapter/tests/           export-ignore
+laravel-adapter/vendor/          export-ignore

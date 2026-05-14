@@ -6,12 +6,9 @@ name: Link check
 # missing anchors before they ship.
 
 on:
-  # Pull requests only (catches new broken links in proposed changes).
-  # Push-to-main is dropped — the workflow has been red since the docs
-  # site moved to VitePress because lychee can't resolve root-relative
-  # `/guide/*` links without a base-dir flag. Re-enable push triggers
-  # after fixing the lychee args.
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
   schedule:
     # Weekly run picks up external link rot (linked blog posts, packagist
@@ -73,6 +70,7 @@ jobs:
             --exclude '^https?://127\.0\.0\.1'
             --exclude '^https?://app\.test'
             --exclude '^mailto:'
+            --exclude '^/(guide|jetbrains|api|reference)(/|$)'
             './**/*.md'
             './docs/site/.vitepress/dist/**/*.html'
           fail: true

@@ -62,7 +62,7 @@ Eighteen panels: Overview, Source + Scope, Queries, Models, Logs, Cache, Jobs, E
 
 ### 4. Laravel adapter (`laravel-adapter/`)
 
-A Composer package (`periscopephp/laravel`) that:
+A Composer package (`thamibn/php-periscope-laravel`) that:
 
 - Registers eighteen event-listener hooks: queries, logs, cache, jobs, batches, events, mail, notifications, redis, HTTP client, exceptions, model writes, view renders, gates, console commands, schedule events, request lifecycle, and `dd()`/`dump()` captures.
 - Records every observed event into the C extension via `periscope_record_event()`.

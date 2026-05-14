@@ -29,7 +29,7 @@ final readonly class CallSiteResolver
             '/vendor/composer/',
             // The adapter's own frames must be skipped so call sites land on
             // user code, not on QueryHook.php / CacheHook.php / etc.
-            '/vendor/periscopephp/laravel/',
+            '/vendor/thamibn/php-periscope-laravel/',
             '/laravel-adapter/src/',
         ],
         private int $snippetLines = 6,

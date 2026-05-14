@@ -30,7 +30,7 @@ Assuming you have a Laravel 12 / 13 project at `~/code/my-app`:
 cd ~/code/my-app
 
 # 1. Add the adapter. Service-provider auto-discovery picks it up.
-composer require periscopephp/laravel
+composer require thamibn/php-periscope-laravel
 
 # 2. Start the daemon (in a separate terminal, leave it running)
 periscope-daemon

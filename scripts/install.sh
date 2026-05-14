@@ -616,7 +616,7 @@ cat <<EOF
 
   Next steps:
     1. Start the daemon:             periscope-daemon
-    2. Install the Laravel adapter:  composer require periscopephp/laravel
+    2. Install the Laravel adapter:  composer require thamibn/php-periscope-laravel
     3. Open http://localhost:9999    in your browser
     4. Hit any route in your Laravel app — the trace appears in the UI.
 

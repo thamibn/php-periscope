@@ -26,7 +26,7 @@ wsl --install -d Ubuntu-22.04
 wsl --set-default-version 2
 ```
 
-Reboot, finish Ubuntu's first-run user setup, then open the Ubuntu terminal. From there everything in this guide works exactly as on a native Linux box — `apt-get install libcapnp-dev capnproto php8.3-dev`, run the install script, `composer require periscopephp/laravel`, etc.
+Reboot, finish Ubuntu's first-run user setup, then open the Ubuntu terminal. From there everything in this guide works exactly as on a native Linux box — `apt-get install libcapnp-dev capnproto php8.3-dev`, run the install script, `composer require thamibn/php-periscope-laravel`, etc.
 
 Your Windows IDE (VSCode, PhpStorm) connects to WSL the standard way: VSCode's **Remote - WSL** extension or PhpStorm's **WSL Interpreter** setting. The periscope UI at `http://localhost:9999` is reachable from Windows because WSL2 forwards localhost transparently.
 
@@ -70,7 +70,7 @@ If either fails, re-read the script output — it tells you exactly which step m
 
 ```bash
 cd your-laravel-app
-composer require periscopephp/laravel
+composer require thamibn/php-periscope-laravel
 ```
 
 That's the whole adapter setup. Service-provider auto-discovery picks it up; defaults are sensible. Visit any route in your app — the first request will write a `.cptrace` file to `/tmp/periscope/`.

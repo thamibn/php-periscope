@@ -1,0 +1,72 @@
+{
+    "name": "thamibn/php-periscope-laravel",
+    "description": "Laravel adapter for php-periscope — wires Telescope-tier observability events into the periscope C extension's trace. Time-travel debugging, SQL/log/cache/job inspection, and an AI-native MCP server in one package.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel", "laravel-13", "laravel-12",
+        "debugging", "debugger", "debug",
+        "xdebug", "xdebug-alternative",
+        "time-travel", "time-travel-debugging", "step-back", "rewind", "rewind-request", "replay",
+        "observability", "telescope", "telescope-alternative", "debugbar", "clockwork",
+        "tracing", "request-debugging", "profiler", "profiling",
+        "sql-debugging", "query-log", "n-plus-one",
+        "periscope", "php-periscope",
+        "mcp", "ai-debugging"
+    ],
+    "homepage": "https://periscope.thamibn.com",
+    "support": {
+        "issues": "https://github.com/thamibn/php-periscope/issues",
+        "source": "https://github.com/thamibn/php-periscope",
+        "docs": "https://periscope.thamibn.com"
+    },
+    "authors": [
+        {
+            "name": "Thamsanca Ntuli",
+            "email": "thamibn@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "illuminate/contracts": "^12.0 || ^13.0",
+        "illuminate/support": "^12.0 || ^13.0"
+    },
+    "require-dev": {
+        "laravel/mcp": "^0.7",
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "pestphp/pest": "^3.0",
+        "pestphp/pest-plugin-laravel": "^3.0"
+    },
+    "suggest": {
+        "laravel/ai": "Enables AI-powered slow-query / N+1 / exception / error-log advisories via the AiAdvisor. Picks any provider — Ollama (free), OpenRouter (free tier), OpenAI, Anthropic, Gemini, Groq, etc.",
+        "laravel/mcp": "Exposes periscope traces to AI agents (Claude / Cursor / Codex) via the Model Context Protocol. After install: `claude mcp add periscope -- php artisan mcp:start periscope`."
+    },
+    "autoload": {
+        "psr-4": {
+            "Periscope\\Laravel\\": "laravel-adapter/src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Periscope\\Laravel\\Tests\\": "laravel-adapter/tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Periscope\\Laravel\\PeriscopeServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/pest --configuration laravel-adapter/phpunit.xml"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
