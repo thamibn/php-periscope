@@ -12,6 +12,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.5</h3>
+        <ul>
+            <li><b>Fix duplicate-scheme rejection</b> — when a Periscope run config already existed in <code>.idea/runConfigurations/Periscope.xml</code>, the platform silently rejected the auto-seeded one and the resulting "Switch to Periscope" balloon action did nothing. Now: skip seeding when an on-disk or in-memory Periscope config is detected, and resolve the live settings at click-time so the dropdown actually switches.</li>
+            <li><b>Always show the "Switch to Periscope" balloon</b> on every project open when the dropdown isn't already on Periscope. Includes a "Don't show again" per-project opt-out.</li>
+        </ul>
         <h3>0.1.4</h3>
         <ul>
             <li><b>Auto-listen on Debug</b> — pressing the Debug button with no trace yet now watches the trace directory and attaches the moment the next <code>.cptrace</code> lands. No tool window, no toggle. (Fixes #1)</li>

@@ -2,6 +2,7 @@ package dev.periscope.phpstorm.runconfig
 
 import com.intellij.execution.RunManager
 import com.intellij.execution.RunnerAndConfigurationSettings
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -9,56 +10,69 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import dev.periscope.phpstorm.settings.PeriscopeApplicationSettings
+import java.io.File
 
 /**
- * Zero-config UX on **first** project open — strictly one-shot per project.
+ * On project open:
  *
- *   * If a Periscope run config already exists in `.idea/runConfigurations/`,
- *     do nothing. Don't re-seed, don't re-nudge.
- *   * Otherwise: silently create a default "Periscope" run config (so it
- *     appears in the dropdown next to Xdebug) and, if the user is currently
- *     sitting on a different config, surface a one-time balloon telling them
- *     the new entry is available with a "Switch to Periscope" action.
+ *   1. **Ensure a Periscope run config exists** in this project. Check both
+ *      RunManager AND `.idea/runConfigurations/Periscope.xml` on disk — the
+ *      latter catches the race where ProjectActivity fires before the scheme
+ *      manager has finished loading existing run configs. Without the on-disk
+ *      check we silently created a duplicate, which the platform rejected
+ *      with `Scheme file "Periscope.xml" is not loaded because defines
+ *      duplicated name "Periscope"` — and the returned settings then pointed
+ *      at a ghost config that wouldn't switch the dropdown.
  *
- * Because run configs live in `.idea/`, they're inherently per-project — each
- * project gets its own Periscope entry. The factory defaults are identical
- * across projects, so functionally they behave the same everywhere.
+ *   2. **Nudge the user with a balloon every time** the project opens —
+ *      unless the user clicked "Don't show again" (per-project flag) or is
+ *      already on the Periscope config.
+ *
+ * Toggleable globally via Settings → Tools → Periscope.
  */
 class PeriscopeAutoConfigActivity : ProjectActivity {
 
     override suspend fun execute(project: Project) {
         if (project.isDisposed) return
 
-        // Global kill-switch — Settings → Tools → Periscope → "Auto-create…"
+        // Global kill-switch — Settings → Tools → Periscope.
         if (!PeriscopeApplicationSettings.getInstance().autoSeedRunConfig) return
 
         val runManager = RunManager.getInstance(project)
-        val type = PeriscopeRunConfigurationType()
+        if (!periscopeConfigExists(project, runManager)) {
+            seedConfig(runManager)
+        }
 
-        // Early-exit: a Periscope config already exists in this project. Don't
-        // re-seed, don't re-nudge — the user has already been introduced to it.
-        if (runManager.getConfigurationSettingsList(type).isNotEmpty()) return
-
-        val settings = seedConfig(runManager, type)
-
-        // Fresh seed → user hasn't seen Periscope in this project before. If
-        // they're currently on another config (Xdebug, PHPUnit, plain Run),
-        // surface a one-time balloon so they discover the new entry. Skip
-        // when Periscope is somehow already the selected one (edge case).
+        // Always nudge when the active config is not Periscope. The user can
+        // opt out per-project via "Don't show again".
         val selected = runManager.selectedConfiguration?.configuration
         if (selected is PeriscopeRunConfiguration) return
 
-        notifyUser(project, settings)
+        val props = PropertiesComponent.getInstance(project)
+        if (props.getBoolean(DONT_NOTIFY_KEY, false)) return
+
+        notifyUser(project, props)
     }
 
-    private suspend fun seedConfig(
-        runManager: RunManager,
-        type: PeriscopeRunConfigurationType,
-    ): RunnerAndConfigurationSettings {
+    /**
+     * True if any Periscope config is already known — either loaded into
+     * RunManager (by type or by name) or sitting on disk as a scheme file
+     * the platform will load on its own schedule. The disk check guards
+     * against a load race where ProjectActivity beats the scheme manager.
+     */
+    private fun periscopeConfigExists(project: Project, runManager: RunManager): Boolean {
+        val inMemory = runManager.allSettings.any {
+            it.configuration is PeriscopeRunConfiguration || it.name == DEFAULT_NAME
+        }
+        if (inMemory) return true
+        val base = project.basePath ?: return false
+        return File(base, ".idea/runConfigurations/Periscope.xml").exists()
+    }
+
+    private fun seedConfig(runManager: RunManager): RunnerAndConfigurationSettings {
+        val type = PeriscopeRunConfigurationType()
         val factory = type.configurationFactories.first()
-        val settings = runManager.createConfiguration("Periscope", factory)
-        // Persist under `.idea/runConfigurations/` so the entry survives a
-        // VCS pull or IDE reopen on a fresh checkout.
+        val settings = runManager.createConfiguration(DEFAULT_NAME, factory)
         settings.storeInDotIdeaFolder()
         ApplicationManager.getApplication().invokeAndWait {
             runManager.addConfiguration(settings)
@@ -66,7 +80,7 @@ class PeriscopeAutoConfigActivity : ProjectActivity {
         return settings
     }
 
-    private fun notifyUser(project: Project, settings: RunnerAndConfigurationSettings) {
+    private fun notifyUser(project: Project, props: PropertiesComponent) {
         NotificationGroupManager.getInstance()
             .getNotificationGroup("Periscope")
             .createNotification(
@@ -75,11 +89,26 @@ class PeriscopeAutoConfigActivity : ProjectActivity {
             )
             .addAction(NotificationAction.createSimple("Switch to Periscope") {
                 ApplicationManager.getApplication().invokeLater {
-                    if (!project.isDisposed) {
-                        RunManager.getInstance(project).selectedConfiguration = settings
+                    if (project.isDisposed) return@invokeLater
+                    val rm = RunManager.getInstance(project)
+                    // Always resolve the live settings at click-time — the
+                    // object we held at construction can be stale if the
+                    // scheme system reloaded.
+                    val live = rm.findConfigurationByName(DEFAULT_NAME)
+                        ?: rm.allSettings.firstOrNull { it.configuration is PeriscopeRunConfiguration }
+                    if (live != null) {
+                        rm.selectedConfiguration = live
                     }
                 }
             })
+            .addAction(NotificationAction.createSimple("Don't show again") {
+                props.setValue(DONT_NOTIFY_KEY, true)
+            })
             .notify(project)
+    }
+
+    private companion object {
+        const val DEFAULT_NAME = "Periscope"
+        const val DONT_NOTIFY_KEY = "periscope.autoConfig.dontNotify"
     }
 }
