@@ -73,29 +73,41 @@ cd your-laravel-app
 composer require thamibn/laravel-periscope
 ```
 
-That's the whole adapter setup. Service-provider auto-discovery picks it up; defaults are sensible. Visit any route in your app — the first request will write a `.cptrace` file to `/tmp/periscope/`.
+That's the whole adapter setup. Service-provider auto-discovery picks it up; defaults are sensible.
 
-### Toolbar chip (optional)
-
-To inject a Clockwork-style request chip into HTML responses:
+On first install the adapter appends two lines to your `.env`:
 
 ```bash
-# .env
+# php-periscope — set to false to disable on this environment
 PERISCOPE_TOOLBAR_ENABLED=true
-```
-
-The chip shows duration / query count / status. Click → opens the trace.
-
-### In-app UI mount (optional)
-
-To serve the periscope UI from inside your Laravel app at `/periscope` (no separate port):
-
-```bash
-# .env
 PERISCOPE_UI_ENABLED=true
 ```
 
-`app.test/periscope` now serves the same UI the daemon hosts at `localhost:9999`.
+This is **idempotent**: if either key is already present (set to anything, including `false`), the adapter leaves your `.env` alone. It only runs in console context (e.g. during `composer require`) — web requests never touch the filesystem.
+
+Visit any route in your app — the first request writes a `.cptrace` file to `/tmp/periscope/`.
+
+### Toolbar chip
+
+The auto-installed `PERISCOPE_TOOLBAR_ENABLED=true` injects a Clockwork-style request chip into HTML responses — duration, query count, status. Click → opens the trace.
+
+To disable on a given environment:
+
+```bash
+# .env
+PERISCOPE_TOOLBAR_ENABLED=false
+```
+
+### In-app UI mount
+
+The auto-installed `PERISCOPE_UI_ENABLED=true` serves the periscope UI from inside your Laravel app at `/periscope`. So `app.test/periscope` shows the same UI the daemon hosts at `localhost:9999` — convenient when you're working inside a single browser tab.
+
+To disable:
+
+```bash
+# .env
+PERISCOPE_UI_ENABLED=false
+```
 
 ## Open the UI
 

@@ -134,6 +134,8 @@ final class PeriscopeServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->ensureEnvDefaults();
+
         $this->publishes([
             __DIR__ . '/../config/periscope.php' => $this->app->configPath('periscope.php'),
         ], 'periscope-config');
@@ -173,6 +175,47 @@ final class PeriscopeServiceProvider extends ServiceProvider
 
         $this->registerUiRoutes();
         $this->registerToolbarMiddleware();
+    }
+
+    /**
+     * Append sensible defaults to the user's .env on first install — toolbar
+     * + in-app UI on. Idempotent: once the keys are present (set to any value,
+     * including false), this is a no-op so the user's config is never overwritten.
+     * Only runs in console context so web requests never touch the filesystem.
+     *
+     * To disable the toolbar/UI later: set PERISCOPE_TOOLBAR_ENABLED=false
+     * and PERISCOPE_UI_ENABLED=false in your .env.
+     */
+    private function ensureEnvDefaults(): void
+    {
+        if (!$this->app->runningInConsole()) {
+            return;
+        }
+
+        $envPath = $this->app->environmentFilePath();
+        if (!is_file($envPath) || !is_writable($envPath)) {
+            return;
+        }
+
+        $contents = (string) file_get_contents($envPath);
+
+        // Already configured — leave the user's choice alone.
+        if (str_contains($contents, 'PERISCOPE_TOOLBAR_ENABLED')
+            || str_contains($contents, 'PERISCOPE_UI_ENABLED')) {
+            return;
+        }
+
+        $needsLeadingNewline = !str_ends_with($contents, "\n");
+        $snippet = ($needsLeadingNewline ? "\n" : '')
+            . "\n# php-periscope — set to false to disable on this environment\n"
+            . "PERISCOPE_TOOLBAR_ENABLED=true\n"
+            . "PERISCOPE_UI_ENABLED=true\n";
+
+        file_put_contents($envPath, $snippet, FILE_APPEND);
+
+        if (PHP_SAPI === 'cli' && defined('STDERR')) {
+            fwrite(STDERR, "  \033[2mperiscope:\033[0m appended PERISCOPE_TOOLBAR_ENABLED + PERISCOPE_UI_ENABLED to .env (set to false to disable)\n");
+        }
     }
 
     /**
