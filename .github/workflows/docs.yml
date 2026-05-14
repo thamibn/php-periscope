@@ -23,6 +23,10 @@ on:
     paths:
       - "docs/site/**"
       - ".github/workflows/docs.yml"
+  # Manual re-run from the Actions tab or `gh workflow run docs.yml`. Lets
+  # us re-deploy after a secret rotation or a one-off doc edit on a
+  # branch that didn't touch docs/site/**.
+  workflow_dispatch: {}
 
 permissions:
   contents: read
