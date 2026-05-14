@@ -99,8 +99,21 @@ compile_step() {
 
 need() { printf "  \033[36m?\033[0m %s\n" "$1"; }
 
-# Locate the repo root regardless of where the user invokes from.
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Locate the repo root. When invoked as `bash <(curl ...)` $0 is /dev/fd/N, so
+# the usual sibling lookup yields /dev — useless. Detect that case and clone the
+# repo into a tempdir so the build steps have source to work with.
+ROOT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
+if [[ -z "$ROOT" || ! -d "$ROOT/extension" ]]; then
+  CLONE_DIR="$(mktemp -d -t periscope-src-XXXXXX)"
+  printf "\033[1;34m::\033[0m \033[2mscript piped via curl — cloning source into %s\033[0m\n" "$CLONE_DIR"
+  if ! git clone --depth=1 https://github.com/thamibn/php-periscope.git "$CLONE_DIR" >/dev/null 2>&1; then
+    printf "  \033[31m✗\033[0m could not clone https://github.com/thamibn/php-periscope.git\n" >&2
+    printf "    check your network + git install, then re-run.\n" >&2
+    exit 1
+  fi
+  ROOT="$CLONE_DIR"
+  trap 'rm -rf "$CLONE_DIR"' EXIT
+fi
 
 # Tracks missing requirements during the detection pass. Each item has a display
 # name, the command we'd run to install it, and a flag for whether the user must
@@ -283,33 +296,39 @@ if [[ ${#PHPSTORM_DIRS[@]} -gt 0 ]]; then
 else
   warn "PhpStorm: not detected (plugin will be skipped — browser UI at http://localhost:9999 still works)"
 fi
-# VSCode `code` CLI:
-VSCODE_CLI=""
+# VSCode-family CLIs — detect every install we recognise (VSCode, Cursor, etc.).
+VSCODE_LABELS=()
+VSCODE_CLIS=()
+_add_vsc() {
+  local label="$1" cli="$2"
+  [[ -x "$cli" ]] || return 0
+  for existing in "${VSCODE_CLIS[@]+"${VSCODE_CLIS[@]}"}"; do
+    [[ "$existing" = "$cli" ]] && return 0  # dedupe
+  done
+  VSCODE_LABELS+=("$label")
+  VSCODE_CLIS+=("$cli")
+}
 if command -v code >/dev/null 2>&1; then
-  VSCODE_CLI="$(command -v code)"
-else
-  case "$(uname -s)" in
-    Darwin)
-      for app in \
-        "/Applications/Visual Studio Code.app" \
-        "/Applications/Visual Studio Code - Insiders.app" \
-        "/Applications/VSCodium.app" \
-        "/Applications/Cursor.app" ; do
-        local_cli="$app/Contents/Resources/app/bin/code"
-        [[ -x "$local_cli" ]] && { VSCODE_CLI="$local_cli" ; break ; }
-      done
-      ;;
-    Linux)
-      for cli in "/snap/bin/code" "/usr/share/code/bin/code" "$HOME/.vscode-server/cli/code" ; do
-        [[ -x "$cli" ]] && { VSCODE_CLI="$cli" ; break ; }
-      done
-      ;;
-  esac
+  _add_vsc "code (on PATH)" "$(command -v code)"
 fi
-if [[ -n "$VSCODE_CLI" ]]; then
-  ok "VSCode/Cursor: $VSCODE_CLI"
+case "$(uname -s)" in
+  Darwin)
+    _add_vsc "VSCode"           "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+    _add_vsc "VSCode Insiders"  "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"
+    _add_vsc "VSCodium"         "/Applications/VSCodium.app/Contents/Resources/app/bin/code"
+    _add_vsc "Cursor"           "/Applications/Cursor.app/Contents/Resources/app/bin/code"
+    _add_vsc "Windsurf"         "/Applications/Windsurf.app/Contents/Resources/app/bin/code"
+    ;;
+  Linux)
+    _add_vsc "VSCode (snap)"     "/snap/bin/code"
+    _add_vsc "VSCode (system)"   "/usr/share/code/bin/code"
+    _add_vsc "VSCode Server"     "$HOME/.vscode-server/cli/code"
+    ;;
+esac
+if [[ ${#VSCODE_CLIS[@]} -gt 0 ]]; then
+  ok "VSCode-family: ${#VSCODE_CLIS[@]} install(s) detected (${VSCODE_LABELS[*]})"
 else
-  warn "VSCode/Cursor: not detected (extension will be skipped — browser UI still works)"
+  warn "VSCode-family: not detected (extension will be skipped — browser UI still works)"
 fi
 
 # ---------- summary + decide ----------
@@ -364,6 +383,86 @@ ok "binary prefix: $PREFIX"
 if [[ ! -w "$PREFIX" ]]; then
   warn "$PREFIX is not writable. The script will retry with sudo on the install step only."
 fi
+
+# ---------- IDE plugin target picker ----------
+
+# Compose a flat list of all detected IDE targets; user picks which to install into.
+# Each parallel-array slot has a label + kind ("jb" or "vsc") + identifier (config dir
+# for JB, code-CLI path for VSCode-family).
+IDE_LABELS=()
+IDE_KINDS=()
+IDE_IDS=()
+for d in "${PHPSTORM_DIRS[@]+"${PHPSTORM_DIRS[@]}"}"; do
+  IDE_LABELS+=("PhpStorm ($(basename "$d"))")
+  IDE_KINDS+=("jb")
+  IDE_IDS+=("$d")
+done
+for i in "${!VSCODE_CLIS[@]}"; do
+  IDE_LABELS+=("${VSCODE_LABELS[i]}")
+  IDE_KINDS+=("vsc")
+  IDE_IDS+=("${VSCODE_CLIS[i]}")
+done
+
+# Default selection: all detected. User can opt out via the picker.
+IDE_SELECTED=()
+for _ in "${IDE_LABELS[@]+"${IDE_LABELS[@]}"}"; do IDE_SELECTED+=("1"); done
+
+if [[ ${#IDE_LABELS[@]} -eq 0 ]]; then
+  warn "no supported IDEs detected — IDE plugin install will be skipped"
+elif [[ -t 0 ]] && [[ -t 1 ]] && [[ $DRY_RUN -eq 0 ]]; then
+  step "IDE plugin install — pick targets"
+  for i in "${!IDE_LABELS[@]}"; do
+    printf "  [%d] %s\n" "$((i+1))" "${IDE_LABELS[i]}"
+  done
+  printf "  [A] all of the above (default)\n"
+  printf "  [N] skip IDE plugins\n\n"
+  printf "  pick (Enter = A, or comma-separated numbers like 1,3): "
+  ide_choice=""
+  read -r ide_choice </dev/tty || true
+  ide_choice="$(printf '%s' "$ide_choice" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
+  case "$ide_choice" in
+    ""|A)
+      ok "selected: all detected IDEs"
+      ;;
+    N)
+      for i in "${!IDE_SELECTED[@]}"; do IDE_SELECTED[i]=0; done
+      ok "selected: none — IDE plugin install will be skipped"
+      ;;
+    *)
+      for i in "${!IDE_SELECTED[@]}"; do IDE_SELECTED[i]=0; done
+      IFS=',' read -ra _picks <<< "$ide_choice"
+      for p in "${_picks[@]}"; do
+        idx=$((p-1))
+        if [[ "$idx" -ge 0 && "$idx" -lt "${#IDE_SELECTED[@]}" ]]; then
+          IDE_SELECTED[idx]=1
+        fi
+      done
+      _picked_names=()
+      for i in "${!IDE_SELECTED[@]}"; do
+        [[ "${IDE_SELECTED[i]}" = "1" ]] && _picked_names+=("${IDE_LABELS[i]}")
+      done
+      if [[ ${#_picked_names[@]} -eq 0 ]]; then
+        warn "no valid picks parsed — IDE plugin install will be skipped"
+      else
+        ok "selected: ${_picked_names[*]}"
+      fi
+      ;;
+  esac
+fi
+
+# Apply the selection — overwrite the install-target arrays with only chosen entries.
+PHPSTORM_DIRS=()
+_kept_vsc_labels=()
+_kept_vsc_clis=()
+for i in "${!IDE_LABELS[@]}"; do
+  [[ "${IDE_SELECTED[i]}" = "1" ]] || continue
+  case "${IDE_KINDS[i]}" in
+    jb)  PHPSTORM_DIRS+=("${IDE_IDS[i]}") ;;
+    vsc) _kept_vsc_labels+=("${IDE_LABELS[i]}") ; _kept_vsc_clis+=("${IDE_IDS[i]}") ;;
+  esac
+done
+VSCODE_LABELS=("${_kept_vsc_labels[@]+"${_kept_vsc_labels[@]}"}")
+VSCODE_CLIS=("${_kept_vsc_clis[@]+"${_kept_vsc_clis[@]}"}")
 
 # ---------- build extension ----------
 
@@ -488,16 +587,11 @@ install_bin "$DAEMON_BIN" periscope-daemon
 
 step "install JetBrains plugin (if PhpStorm detected)"
 install_jetbrains_plugin() {
-  # PHPSTORM_DIRS was populated during preconditions. If empty, offer a manual path.
+  # PHPSTORM_DIRS has already been filtered by the IDE picker. If empty, the user
+  # either had nothing detected, picked None, or unticked all PhpStorm entries.
   if [[ ${#PHPSTORM_DIRS[@]} -eq 0 ]]; then
-    local hint
-    hint="$(ask_path 'PhpStorm config dir (or Enter to skip)')"
-    if [[ -n "$hint" && -d "$hint" ]]; then
-      PHPSTORM_DIRS+=("$hint")
-    else
-      warn "PhpStorm not configured — skipping plugin (browser UI at http://localhost:9999 still works)"
-      return 0
-    fi
+    warn "no PhpStorm target selected — skipping JetBrains plugin"
+    return 0
   fi
 
   # Source the .zip — prefer locally-built artefact for contributor flow,
@@ -541,22 +635,10 @@ install_jetbrains_plugin
 
 # ---------- VSCode extension ----------
 
-step "install VSCode extension (if VSCode/Cursor detected)"
+step "install VSCode-family extension(s)"
 install_vscode_extension() {
-  # VSCODE_CLI was populated during preconditions. If empty, offer a manual path.
-  if [[ -z "$VSCODE_CLI" ]]; then
-    local hint
-    hint="$(ask_path 'Path to VSCode/Cursor app or `code` CLI (or Enter to skip)')"
-    if [[ -n "$hint" ]]; then
-      for cand in "$hint" "$hint/Contents/Resources/app/bin/code" "$hint/bin/code" ; do
-        [[ -x "$cand" ]] && { VSCODE_CLI="$cand" ; break ; }
-      done
-    fi
-    if [[ -z "$VSCODE_CLI" ]]; then
-      warn "VSCode/Cursor not configured — skipping extension (browser UI still works)"
-      return 0
-    fi
-  fi
+  local code_cli="$1"
+  local label="${2:-$code_cli}"
 
   # Source the .vsix.
   local vsix_src=""
@@ -580,18 +662,25 @@ install_vscode_extension() {
   fi
 
   if [[ $DRY_RUN -eq 1 ]]; then
-    printf "  \033[2m(dry-run)\033[0m %s --install-extension %s --force\n" "$VSCODE_CLI" "$vsix_src"
+    printf "  \033[2m(dry-run)\033[0m %s --install-extension %s --force\n" "$code_cli" "$vsix_src"
   else
-    "$VSCODE_CLI" --install-extension "$vsix_src" --force || {
-      warn "VSCode --install-extension failed — try manually: $VSCODE_CLI --install-extension $vsix_src"
+    "$code_cli" --install-extension "$vsix_src" --force || {
+      warn "$label: --install-extension failed — try manually: $code_cli --install-extension $vsix_src"
       return 0
     }
   fi
-  ok "VSCode extension installed via $VSCODE_CLI"
+  ok "$label: extension installed"
 
   [[ "$vsix_src" != "$local_vsix" ]] && rm -f "$vsix_src" || true
 }
-install_vscode_extension
+
+if [[ ${#VSCODE_CLIS[@]} -eq 0 ]]; then
+  warn "no VSCode-family editor selected — skipping extension (browser UI still works)"
+else
+  for _vsc_i in "${!VSCODE_CLIS[@]}"; do
+    install_vscode_extension "${VSCODE_CLIS[_vsc_i]}" "${VSCODE_LABELS[_vsc_i]}"
+  done
+fi
 
 # ---------- verify ----------
 
