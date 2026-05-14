@@ -97,7 +97,7 @@ final class JobDispatchTracker implements QueueingDispatcher
      * Composes a chain — actual dispatch happens later via PendingChain->dispatch(),
      * which routes back through our `dispatch` method, so no need to push here.
      */
-    public function chain($jobs)
+    public function chain($jobs = null)
     {
         return $this->inner->chain($jobs);
     }
