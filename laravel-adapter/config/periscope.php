@@ -6,7 +6,7 @@ declare(strict_types=1);
  * php-periscope Laravel adapter configuration.
  *
  * All values resolve from .env so day-to-day control is one file. After
- * `composer require --dev thamibn/php-periscope-laravel` you never touch this
+ * `composer require --dev thamibn/laravel-periscope` you never touch this
  * file unless you want to override defaults.
  */
 
@@ -223,7 +223,7 @@ return [
         // Adapter's own frames must be skipped — otherwise every call site
         // resolves to QueryHook.php / CacheHook.php instead of the user code
         // that triggered it. Covers both composer-installed and path-repo layouts.
-        '/vendor/thamibn/php-periscope-laravel/',
+        '/vendor/thamibn/laravel-periscope/',
         '/laravel-adapter/src/',
     ],
 

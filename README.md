@@ -33,7 +33,7 @@ Both build the C extension against your PHP, drop the daemon binaries into your 
 
 ```bash
 # add to any Laravel 12 / 13 app
-composer require thamibn/php-periscope-laravel
+composer require thamibn/laravel-periscope
 
 # start the daemon, open the UI
 periscope-daemon &
@@ -62,7 +62,7 @@ Benchmark vs Xdebug (from [`docs/POSITIONING.md`](docs/POSITIONING.md)): 3.3× f
 - **C extension** using Zend Observer API (PHP 8.3+) — engine hooks, variable capture, Cap'n Proto trace recording.
 - **Rust daemon** speaking Debug Adapter Protocol — works in VSCode, Neovim, Zed, Helix, JetBrains.
 - **Browser UI** (SolidJS) at `localhost:9999` — source, variables, queries, logs, jobs, timeline scrubber, flame graph, insights, AI suggestions.
-- **Laravel adapter** (Composer package `thamibn/php-periscope-laravel`) — auto-discovers Laravel events; ships the floating toolbar chip, the in-app UI mount, and the [first-party MCP server](https://laravel.com/docs/mcp) for AI agents.
+- **Laravel adapter** (Composer package `thamibn/laravel-periscope`) — auto-discovers Laravel events; ships the floating toolbar chip, the in-app UI mount, and the [first-party MCP server](https://laravel.com/docs/mcp) for AI agents.
 - **VSCode extension** — registers a `periscope` debug type, auto-spawns the daemon, status-bar liveness chip.
 - **Cap'n Proto trace format** — zero-copy on read so the timeline scrubber stays imperceptible.
 

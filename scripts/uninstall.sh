@@ -148,6 +148,6 @@ cat <<EOF
 
   Left in place:
     - The cloned repository (delete manually if you wish).
-    - The composer package thamibn/php-periscope-laravel in your Laravel apps
-      (composer remove thamibn/php-periscope-laravel to drop it).
+    - The composer package thamibn/laravel-periscope in your Laravel apps
+      (composer remove thamibn/laravel-periscope to drop it).
 EOF

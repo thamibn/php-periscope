@@ -12,7 +12,7 @@ Live observability + time-travel debugger for PHP/Laravel apps. Scrub through an
 
 1. **The C extension is installed** (`extension=periscope.so` in your `php.ini`).
 2. **The `periscope-daemon` binary is on `PATH`**.
-3. **The Laravel adapter is installed** in the project being debugged: `composer require thamibn/php-periscope-laravel`.
+3. **The Laravel adapter is installed** in the project being debugged: `composer require thamibn/laravel-periscope`.
 
 All three drop in with one command:
 

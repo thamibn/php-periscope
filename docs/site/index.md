@@ -41,7 +41,7 @@ features:
 bash <(curl -fsSL https://raw.githubusercontent.com/thamibn/php-periscope/main/scripts/install.sh)
 
 # add to any Laravel app
-composer require thamibn/php-periscope-laravel
+composer require thamibn/laravel-periscope
 
 # start the daemon, open the UI
 periscope-daemon &

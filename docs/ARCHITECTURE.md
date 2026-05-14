@@ -93,7 +93,7 @@ A single static binary (`periscope-daemon`) speaking DAP over stdio and serving 
 
 ### 3. Laravel adapter (`laravel-adapter/`)
 
-A Composer package (`thamibn/php-periscope-laravel`) auto-discovered by Laravel 12.x / 13.x.
+A Composer package (`thamibn/laravel-periscope`) auto-discovered by Laravel 12.x / 13.x.
 
 **Responsibilities:**
 - Register eighteen event-listener hooks (`laravel-adapter/src/Hooks/`): queries, logs, cache, jobs, batches, events, mail, notifications, redis, HTTP client, exceptions, model writes, view renders, gates, console commands, schedule events, request lifecycle, and `dd()` / `dump()` captures
