@@ -37,18 +37,6 @@ jobs:
       - name: Build extension
         run: make extension
 
-      - name: Diagnose extension load (capture dlopen errors)
-        run: |
-          set +e
-          SO="$PWD/extension/modules/periscope.so"
-          echo "==> php --version"
-          php --version
-          echo "==> ldd / otool on $SO"
-          (ldd "$SO" || otool -L "$SO") 2>&1 | head -30
-          echo "==> php -d extension=$SO -m (stderr merged)"
-          php -d extension="$SO" -m 2>&1
-          echo "==> exit=$?"
-
       - name: Run .phpt suite
         run: make test
 

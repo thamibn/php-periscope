@@ -6,16 +6,13 @@ X-Periscope-Mode: off header disables capture for the request
 HTTP_X_PERISCOPE_MODE=off
 --FILE--
 <?php
-// The header is read at RINIT. Verify by emitting a record-event call —
-// when disabled it must short-circuit and return false.
+// The header is read at RINIT. When mode=off, periscope short-circuits
+// for the whole request: observer goes silent AND record-event returns
+// false. Only the load-time banner remains.
 function _do_it(): bool {
     return periscope_record_event('test', ['x' => 1], null);
 }
 var_dump(_do_it());
 --EXPECTF--
 periscope loaded
-[periscope] enter {main}() @depth=1
-[periscope] enter _do_it() @depth=2
-[periscope] exit  _do_it: bool -> bool(false) (%fms) @depth=2
 bool(false)
-[periscope] exit  {main} -> int(1) (%fms) @depth=1
