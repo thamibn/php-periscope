@@ -12,6 +12,15 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.4</h3>
+        <ul>
+            <li><b>Auto-listen on Debug</b> — pressing the Debug button with no trace yet now watches the trace directory and attaches the moment the next <code>.cptrace</code> lands. No tool window, no toggle. (Fixes #1)</li>
+            <li><b>Auto-pick the latest trace</b> — leave Trace file blank to replay the newest trace in <code>/tmp/periscope</code>. Explicit paths still work for historical replay; missing paths surface a clear error within ~1s instead of hanging. (Fixes #2)</li>
+            <li><b>Pre-filled config name</b> — new Periscope run configs default to "Periscope" instead of an empty Name field. (Fixes #3)</li>
+            <li><b>Zero-config setup</b> — on first project open we silently seed a Periscope run config in <code>.idea/runConfigurations/</code> and nudge the user with a one-time balloon if they're currently on Xdebug/another config. Idempotent — does nothing on subsequent opens.</li>
+            <li><b>Settings → Tools → Periscope</b> — application-level toggle to disable auto-seeding for power users.</li>
+            <li><b>Suppress green Play button</b> for Periscope configs — only the Debug bug action is meaningful for trace replay.</li>
+        </ul>
         <h3>0.1.0</h3>
         <ul>
             <li>Initial scaffold — registers the <code>periscope</code> debug type and Run/Debug configuration.</li>
