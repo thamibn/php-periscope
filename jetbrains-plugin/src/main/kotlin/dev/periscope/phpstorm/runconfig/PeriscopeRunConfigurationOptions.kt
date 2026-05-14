@@ -8,20 +8,34 @@ import com.intellij.openapi.components.StoredProperty
  * project's `.idea/workspace.xml` so a `Periscope: open latest trace` entry
  * survives IDE restart.
  *
- * Extends `LocatableRunConfigurationOptions` because the run-config base
- * class is `LocatableConfigurationBase` which constrains its options type.
+ * Trace path semantics:
+ *   * blank → auto: pick the newest `.cptrace` in [traceDir]; if none exists
+ *     yet, watch the directory and attach to the first one that lands.
+ *   * non-blank → replay that exact file (historical replay).
+ *
+ * `traceDir` defaults to `/tmp/periscope` to match `periscope-daemon`'s default
+ * (`PERISCOPE_TRACE_DIR`). The VSCode-only `${workspaceFolder}` macro that
+ * shipped in v0.1.3 was removed in v0.1.4 — it never expanded in JetBrains IDEs.
  */
 class PeriscopeRunConfigurationOptions : LocatableRunConfigurationOptions() {
     private val tracePathProperty: StoredProperty<String?> =
-        string("\${workspaceFolder}/tmp/periscope/latest.cptrace").provideDelegate(this, "tracePath")
+        string("").provideDelegate(this, "tracePath")
+    private val traceDirProperty: StoredProperty<String?> =
+        string(DEFAULT_TRACE_DIR).provideDelegate(this, "traceDir")
     private val daemonPathProperty: StoredProperty<String?> =
         string("periscope-daemon").provideDelegate(this, "daemonPath")
     private val stopOnEntryProperty: StoredProperty<Boolean> =
         property(false).provideDelegate(this, "stopOnEntry")
+    private val listenProperty: StoredProperty<Boolean> =
+        property(true).provideDelegate(this, "listen")
 
     var tracePath: String
-        get() = tracePathProperty.getValue(this) ?: "\${workspaceFolder}/tmp/periscope/latest.cptrace"
+        get() = tracePathProperty.getValue(this) ?: ""
         set(v) = tracePathProperty.setValue(this, v)
+
+    var traceDir: String
+        get() = traceDirProperty.getValue(this) ?: DEFAULT_TRACE_DIR
+        set(v) = traceDirProperty.setValue(this, v)
 
     var daemonPath: String
         get() = daemonPathProperty.getValue(this) ?: "periscope-daemon"
@@ -30,4 +44,12 @@ class PeriscopeRunConfigurationOptions : LocatableRunConfigurationOptions() {
     var stopOnEntry: Boolean
         get() = stopOnEntryProperty.getValue(this)
         set(v) = stopOnEntryProperty.setValue(this, v)
+
+    var listen: Boolean
+        get() = listenProperty.getValue(this)
+        set(v) = listenProperty.setValue(this, v)
+
+    companion object {
+        const val DEFAULT_TRACE_DIR = "/tmp/periscope"
+    }
 }

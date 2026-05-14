@@ -4,16 +4,26 @@ import com.intellij.execution.ExecutionException
 import com.intellij.execution.Executor
 import com.intellij.execution.configurations.ConfigurationFactory
 import com.intellij.execution.configurations.LocatableConfigurationBase
+import com.intellij.execution.runners.RunConfigurationWithSuppressedDefaultRunAction
 import com.intellij.execution.configurations.RunProfileState
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
 
+/**
+ * `RunConfigurationWithSuppressedDefaultRunAction` removes the green Run button
+ * from the Periscope config's toolbar — there's nothing to "run", only to "debug
+ * (replay)". The bug icon (Shift+F9) is the only entry point.
+ *
+ * We deliberately do NOT suppress the default debug action — that's exactly the
+ * one we want.
+ */
 class PeriscopeRunConfiguration(
     project: Project,
     factory: ConfigurationFactory,
     name: String,
-) : LocatableConfigurationBase<PeriscopeRunConfigurationOptions>(project, factory, name) {
+) : LocatableConfigurationBase<PeriscopeRunConfigurationOptions>(project, factory, name),
+    RunConfigurationWithSuppressedDefaultRunAction {
 
     override fun getOptions(): PeriscopeRunConfigurationOptions =
         super.getOptions() as PeriscopeRunConfigurationOptions
@@ -21,6 +31,10 @@ class PeriscopeRunConfiguration(
     var tracePath: String
         get() = options.tracePath
         set(v) { options.tracePath = v }
+
+    var traceDir: String
+        get() = options.traceDir
+        set(v) { options.traceDir = v }
 
     var daemonPath: String
         get() = options.daemonPath
@@ -30,8 +44,16 @@ class PeriscopeRunConfiguration(
         get() = options.stopOnEntry
         set(v) { options.stopOnEntry = v }
 
+    var listen: Boolean
+        get() = options.listen
+        set(v) { options.listen = v }
+
     override fun getConfigurationEditor(): SettingsEditor<out com.intellij.execution.configurations.RunConfiguration> =
         PeriscopeSettingsEditor()
+
+    // Surfaced by RunManager when the user hasn't typed a custom name. Without this,
+    // the Name field in Edit Configurations renders blank on first open.
+    override fun suggestedName(): String = "Periscope"
 
     @Throws(ExecutionException::class)
     override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState? {
