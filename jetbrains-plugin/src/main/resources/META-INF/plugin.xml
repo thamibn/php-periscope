@@ -31,20 +31,37 @@
     </extensions>
 
     <actions>
+        <!--
+          Step Back slots in immediately after the standard Step Out button on
+          PhpStorm's existing debug toolbar — sits in the natural step-*
+          cluster instead of getting tacked on at the end. The action is
+          enabled+visible ONLY while a periscope debug session is the active
+          one; during a regular Xdebug session the button is hidden, so the
+          toolbar matches PhpStorm's stock layout for Xdebug users.
+        -->
         <action id="periscope.StepBack"
                 class="dev.periscope.phpstorm.action.StepBackAction"
                 text="Step Back"
                 description="Move the trace cursor one step backward (periscope time-travel)"
                 icon="AllIcons.Actions.Back">
-            <add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="last"/>
+            <add-to-group group-id="XDebugger.ToolWindow.TopToolbar"
+                          anchor="after" relative-to-action="StepOut"/>
             <keyboard-shortcut keymap="$default" first-keystroke="control alt shift F7"/>
         </action>
+
+        <!--
+          Continue Backward is NOT added to the toolbar — it lives only as a
+          keyboard shortcut + Run-menu item to keep the toolbar uncluttered.
+          The user is one Ctrl+Alt+F9 away when they want it; toolbar real
+          estate is reserved for actions used per-step.
+        -->
         <action id="periscope.ReverseContinue"
                 class="dev.periscope.phpstorm.action.ReverseContinueAction"
                 text="Continue Backward"
                 description="Continue replay in reverse until the previous breakpoint (periscope time-travel)"
                 icon="AllIcons.Actions.Rewind">
-            <add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="last"/>
+            <add-to-group group-id="RunMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt F9"/>
         </action>
     </actions>
 </idea-plugin>
