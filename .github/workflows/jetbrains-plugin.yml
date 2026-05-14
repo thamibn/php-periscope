@@ -50,6 +50,20 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # The big-ticket cache. intellij-platform-gradle-plugin 2.x downloads
+      # the full PhpStorm SDK (~700MB) into ~/.gradle/caches/IntelliJPlatform.
+      # Key it on the platformVersion declared in gradle.properties — that's
+      # the only file that changes the SDK we resolve. As long as we don't
+      # bump 2024.2.5 -> 2024.3, the cache survives across runs.
+      - name: Cache IntelliJ Platform SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/IntelliJPlatform
+          key: intellij-platform-${{ runner.os }}-${{ hashFiles('jetbrains-plugin/gradle.properties') }}
+          restore-keys: |
+            intellij-platform-${{ runner.os }}-
+
       - name: Build plugin
         run: ./gradlew buildPlugin --no-daemon --stacktrace
 
@@ -77,10 +91,10 @@ jobs:
           fail_on_unmatched_files: false
           generate_release_notes: true
 
-  # Plugin verifier downloads ~1GB of IntelliJ binaries and takes ~5min.
-  # Not worth running on every push — moves to weekly cron + manual dispatch.
-  # Tag pushes still skip it (they're already releases; verifier results
-  # don't gate the release).
+  # Plugin verifier downloads ~1GB of IntelliJ binaries (multiple IDE versions
+  # to check compat against — that's where the GB comes from, not from the
+  # build SDK). Not worth running on every push — moves to weekly cron + manual
+  # dispatch. The verifier IDEs themselves get cached the same way as the SDK.
   verify:
     name: plugin verifier
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -101,6 +115,20 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: true
+
+      # Same IntelliJ Platform cache as the build job uses, plus the
+      # verifier-specific IDE downloads. After the first weekly run, the
+      # subsequent weeks reuse this cache and the verifier takes <1min.
+      - name: Cache IntelliJ Platform SDK + verifier IDEs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/IntelliJPlatform
+            ~/.gradle/caches/pluginVerifier
+          key: intellij-verifier-${{ runner.os }}-${{ hashFiles('jetbrains-plugin/gradle.properties', 'jetbrains-plugin/build.gradle.kts') }}
+          restore-keys: |
+            intellij-verifier-${{ runner.os }}-
+            intellij-platform-${{ runner.os }}-
 
       - name: Run IntelliJ Plugin Verifier
         run: ./gradlew verifyPlugin --no-daemon
