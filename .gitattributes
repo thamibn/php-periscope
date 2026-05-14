@@ -1,6 +1,6 @@
 # Composer / Packagist `git archive` exclusions.
 # Anything tagged `export-ignore` is stripped from the dist zip Composer
-# downloads when a user runs `composer require thamibn/php-periscope-laravel`.
+# downloads when a user runs `composer require thamibn/laravel-periscope`.
 # We ship only what the Laravel adapter needs (src, config, resources, README,
 # LICENSE) — the C extension, Rust daemon, frontend UI, IDE plugins, and
 # project tooling stay out of vendor/.
