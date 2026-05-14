@@ -83,10 +83,28 @@ final class JobDispatchTracker implements QueueingDispatcher
         }
     }
 
+    public function dispatchAfterResponse($command, $handler = null)
+    {
+        $this->stack[] = $this->callSites->resolve();
+        try {
+            return $this->inner->dispatchAfterResponse($command, $handler);
+        } finally {
+            array_pop($this->stack);
+        }
+    }
+
     /**
-     * Catches `dispatchAfterResponse` (not on the interface but on the concrete
-     * Bus\Dispatcher) and any future Laravel additions. Calls without
-     * "dispatch" in the name pass through untouched.
+     * Composes a chain — actual dispatch happens later via PendingChain->dispatch(),
+     * which routes back through our `dispatch` method, so no need to push here.
+     */
+    public function chain($jobs)
+    {
+        return $this->inner->chain($jobs);
+    }
+
+    /**
+     * Catches any future Laravel additions to the dispatch family.
+     * Calls without "dispatch" in the name pass through untouched.
      */
     public function __call(string $name, array $arguments): mixed
     {
