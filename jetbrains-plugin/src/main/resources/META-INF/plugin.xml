@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>dev.periscope.phpstorm</id>
     <name>php-periscope</name>
-    <vendor email="thamibn@gmail.com" url="https://periscope.thamibn.com">periscopephp</vendor>
+    <vendor email="thamibn@live.co.za" url="https://periscope.thamibn.com">periscopephp</vendor>
 
     <description><![CDATA[
         <p>Live observability + time-travel debugger for Laravel. Pauses any request, shows every
