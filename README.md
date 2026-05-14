@@ -18,8 +18,8 @@ A live observability + time-travel debugger built **for Laravel**. Pause any req
 
 ```bash
 # macOS (recommended) — Homebrew tap, single command:
-brew tap periscopephp/php-periscope https://github.com/thamibn/php-periscope.git
-brew install --HEAD periscopephp/php-periscope/php-periscope
+brew tap thamibn/php-periscope https://github.com/thamibn/php-periscope.git
+brew install --HEAD thamibn/php-periscope/php-periscope
 
 # Linux + any Unix shell — one-liner, no Homebrew required:
 bash <(curl -fsSL https://raw.githubusercontent.com/thamibn/php-periscope/main/scripts/install.sh)

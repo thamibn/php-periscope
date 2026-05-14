@@ -3,13 +3,13 @@
 
 # Homebrew tap formula for php-periscope.
 #
-# Lives under `homebrew/` in the main repo for now. To consume:
+# Lives at Formula/php-periscope.rb at repo root so `brew tap` finds it. To consume:
 #
-#   brew tap periscopephp/php-periscope <this-repo-url>
-#   brew install periscopephp/php-periscope/php-periscope
+#   brew tap thamibn/php-periscope https://github.com/thamibn/php-periscope.git
+#   brew install --HEAD thamibn/php-periscope/php-periscope
 #
-# Once the formula stabilises we'll mirror it into a dedicated
-# `periscopephp/homebrew-php-periscope` tap repo and remove this copy.
+# Once the formula stabilises we'll move it into a dedicated
+# `thamibn/homebrew-php-periscope` tap repo and remove this copy.
 class PhpPeriscope < Formula
   desc "Live observability + time-travel debugger for PHP/Laravel"
   homepage "https://github.com/thamibn/php-periscope"
