@@ -144,6 +144,105 @@ ask_yes_no() {
   esac
 }
 
+# Interactive multi-select on /dev/tty. Arrow keys to navigate, space to toggle,
+# 'a' = all, 'n' = none, Enter to confirm. Works in curl-pipe mode because we
+# read from /dev/tty (fd 3) — stdin is busy with the script content.
+#
+# Args:
+#   $1 — prompt text
+#   $2 — name of an array variable holding the items
+#   $3 — name of a parallel array of 0/1 (initial selection state)
+# The selection-state array is updated in place via nameref.
+multi_select() {
+  local prompt="$1"
+  local -n _items_ref="$2"
+  local -n _sel_ref="$3"
+  local count="${#_items_ref[@]}"
+  [[ $count -eq 0 ]] && return 0
+
+  # If we can't drive a real terminal, fall back to the legacy comma-list prompt.
+  if [[ ! -t 1 ]] || [[ ! -r /dev/tty ]]; then
+    printf "  %s\n" "$prompt"
+    for i in "${!_items_ref[@]}"; do
+      printf "    [%d] %s\n" "$((i+1))" "${_items_ref[i]}"
+    done
+    printf "    [A] all (default)  [N] none\n"
+    printf "  pick (Enter = A, or comma-separated numbers): "
+    local fallback_choice=""
+    read -r fallback_choice </dev/tty || true
+    fallback_choice="$(printf '%s' "$fallback_choice" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
+    case "$fallback_choice" in
+      ""|A) for i in "${!_sel_ref[@]}"; do _sel_ref[i]=1; done ;;
+      N)    for i in "${!_sel_ref[@]}"; do _sel_ref[i]=0; done ;;
+      *)
+        for i in "${!_sel_ref[@]}"; do _sel_ref[i]=0; done
+        IFS=',' read -ra _picks <<< "$fallback_choice"
+        for p in "${_picks[@]}"; do
+          local idx=$((p-1))
+          [[ $idx -ge 0 && $idx -lt $count ]] && _sel_ref[idx]=1
+        done
+        ;;
+    esac
+    return 0
+  fi
+
+  exec 3</dev/tty
+  local stty_saved
+  stty_saved="$(stty -g </dev/tty)"
+  stty -echo -icanon min 1 time 0 </dev/tty
+  tput civis 2>/dev/null || true
+  local restore="stty '$stty_saved' </dev/tty 2>/dev/null; tput cnorm 2>/dev/null; exec 3<&- 2>/dev/null"
+  trap "$restore" RETURN
+  trap "$restore; exit 130" INT
+
+  local cur=0
+  local rendered=0
+  _render() {
+    if [[ $rendered -gt 0 ]]; then
+      tput cuu "$rendered" 2>/dev/null
+      tput ed 2>/dev/null
+    fi
+    printf "  \033[1m%s\033[0m\n" "$prompt"
+    printf "  \033[2m↑/↓ move · space toggle · a all · n none · enter confirm\033[0m\n"
+    rendered=$((count + 2))
+    for i in "${!_items_ref[@]}"; do
+      local marker="[ ]"
+      [[ "${_sel_ref[i]}" = "1" ]] && marker="[\033[32m✓\033[0m]"
+      if [[ $i -eq $cur ]]; then
+        printf "  \033[7m▶ %b %s\033[0m\n" "$marker" "${_items_ref[i]}"
+      else
+        printf "    %b %s\n" "$marker" "${_items_ref[i]}"
+      fi
+    done
+  }
+
+  _render
+  while :; do
+    local k=""
+    IFS= read -rsn1 -u 3 k || break
+    case "$k" in
+      $'\x1b')
+        local k2=""
+        IFS= read -rsn2 -t 0.05 -u 3 k2 || true
+        case "$k2" in
+          '[A') (( cur > 0 )) && cur=$((cur-1)) ;;
+          '[B') (( cur < count - 1 )) && cur=$((cur+1)) ;;
+        esac
+        _render
+        ;;
+      ' ')
+        [[ "${_sel_ref[cur]}" = "1" ]] && _sel_ref[cur]=0 || _sel_ref[cur]=1
+        _render
+        ;;
+      a|A) for i in "${!_sel_ref[@]}"; do _sel_ref[i]=1; done ; _render ;;
+      n|N) for i in "${!_sel_ref[@]}"; do _sel_ref[i]=0; done ; _render ;;
+      '')  break ;;  # Enter
+      q|Q) break ;;
+    esac
+  done
+  printf "\n"
+}
+
 # Prompt for a path on /dev/tty. Args: prompt. Stdout: expanded path or empty.
 ask_path() {
   local prompt="$1" user_path=""
@@ -409,45 +508,18 @@ for _ in "${IDE_LABELS[@]+"${IDE_LABELS[@]}"}"; do IDE_SELECTED+=("1"); done
 
 if [[ ${#IDE_LABELS[@]} -eq 0 ]]; then
   warn "no supported IDEs detected — IDE plugin install will be skipped"
-elif [[ -t 0 ]] && [[ -t 1 ]] && [[ $DRY_RUN -eq 0 ]]; then
+elif [[ $DRY_RUN -eq 0 ]]; then
   step "IDE plugin install — pick targets"
-  for i in "${!IDE_LABELS[@]}"; do
-    printf "  [%d] %s\n" "$((i+1))" "${IDE_LABELS[i]}"
+  multi_select "pick IDEs to install the periscope plugin into:" IDE_LABELS IDE_SELECTED
+  _picked_names=()
+  for i in "${!IDE_SELECTED[@]}"; do
+    [[ "${IDE_SELECTED[i]}" = "1" ]] && _picked_names+=("${IDE_LABELS[i]}")
   done
-  printf "  [A] all of the above (default)\n"
-  printf "  [N] skip IDE plugins\n\n"
-  printf "  pick (Enter = A, or comma-separated numbers like 1,3): "
-  ide_choice=""
-  read -r ide_choice </dev/tty || true
-  ide_choice="$(printf '%s' "$ide_choice" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
-  case "$ide_choice" in
-    ""|A)
-      ok "selected: all detected IDEs"
-      ;;
-    N)
-      for i in "${!IDE_SELECTED[@]}"; do IDE_SELECTED[i]=0; done
-      ok "selected: none — IDE plugin install will be skipped"
-      ;;
-    *)
-      for i in "${!IDE_SELECTED[@]}"; do IDE_SELECTED[i]=0; done
-      IFS=',' read -ra _picks <<< "$ide_choice"
-      for p in "${_picks[@]}"; do
-        idx=$((p-1))
-        if [[ "$idx" -ge 0 && "$idx" -lt "${#IDE_SELECTED[@]}" ]]; then
-          IDE_SELECTED[idx]=1
-        fi
-      done
-      _picked_names=()
-      for i in "${!IDE_SELECTED[@]}"; do
-        [[ "${IDE_SELECTED[i]}" = "1" ]] && _picked_names+=("${IDE_LABELS[i]}")
-      done
-      if [[ ${#_picked_names[@]} -eq 0 ]]; then
-        warn "no valid picks parsed — IDE plugin install will be skipped"
-      else
-        ok "selected: ${_picked_names[*]}"
-      fi
-      ;;
-  esac
+  if [[ ${#_picked_names[@]} -eq 0 ]]; then
+    warn "nothing selected — IDE plugin install will be skipped"
+  else
+    ok "selected: ${_picked_names[*]}"
+  fi
 fi
 
 # Apply the selection — overwrite the install-target arrays with only chosen entries.
