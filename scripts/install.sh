@@ -648,6 +648,33 @@ fi
 write_file "$INI_FILE" 644 printf '%s\n' "$INI_BODY"
 ok "wrote: $INI_FILE"
 
+# ---------- cleanup stale artifacts ----------
+#
+# Keep only the immediately-preceding .bak. Older variants accumulate when
+# users re-run the script repeatedly across versions, or when previous
+# script versions left timestamped backups (.bak.1, .bak.20260514, etc).
+# We never delete the .bak file we just wrote a few lines above — that's
+# the user's escape hatch back to their previous config.
+if [[ $DRY_RUN -eq 0 ]]; then
+  _stale_count=0
+  _scan_dir="$(dirname "$INI_FILE")"
+  _ini_base="$(basename "$INI_FILE")"
+  for _stale in "$_scan_dir/$_ini_base".bak.*; do
+    [[ -e "$_stale" ]] || continue
+    if [[ -w "$_scan_dir" ]]; then
+      rm -f "$_stale"
+    else
+      sudo rm -f "$_stale"
+    fi
+    _stale_count=$((_stale_count + 1))
+  done
+  if (( _stale_count > 0 )); then
+    ok "cleaned up $_stale_count stale ini backup(s)"
+  else
+    trace "no stale ini backups to clean up"
+  fi
+fi
+
 # ---------- build daemon ----------
 
 step "build Rust daemon"
