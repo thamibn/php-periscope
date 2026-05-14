@@ -1,7 +1,9 @@
 package dev.periscope.phpstorm.runconfig
 
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.SettingsEditor
+import com.intellij.openapi.ui.TextBrowseFolderListener
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.AlignX
@@ -17,32 +19,22 @@ import javax.swing.JComponent
  *   * Daemon binary — fallback if `periscope-daemon` isn't on PATH
  *   * Listen — when trace file is blank and none exists, watch for the next
  *   * Stop on entry — pause at the first observed frame
+ *
+ * Uses the listener-based `addBrowseFolderListener(BrowseFolderActionListener)`
+ * overload, which is the non-deprecated path in 2024.2+. The title and
+ * description live on the descriptor itself via `withTitle` / `withDescription`.
+ * The legacy 4-arg form is slated for removal in a future PhpStorm release.
  */
 class PeriscopeSettingsEditor : SettingsEditor<PeriscopeRunConfiguration>() {
 
     private val tracePathField = TextFieldWithBrowseButton().apply {
-        addBrowseFolderListener(
-            "Periscope Trace File",
-            "Leave blank to auto-pick the newest .cptrace",
-            null,
-            FileChooserDescriptorFactory.createSingleFileDescriptor("cptrace"),
-        )
+        addBrowseFolderListener(TextBrowseFolderListener(traceFileDescriptor()))
     }
     private val traceDirField = TextFieldWithBrowseButton().apply {
-        addBrowseFolderListener(
-            "Periscope Trace Directory",
-            "Directory where periscope-daemon writes .cptrace files",
-            null,
-            FileChooserDescriptorFactory.createSingleFolderDescriptor(),
-        )
+        addBrowseFolderListener(TextBrowseFolderListener(traceDirDescriptor()))
     }
     private val daemonPathField = TextFieldWithBrowseButton().apply {
-        addBrowseFolderListener(
-            "periscope-daemon Binary",
-            "Locate the periscope-daemon binary if not on PATH",
-            null,
-            FileChooserDescriptorFactory.createSingleFileDescriptor(),
-        )
+        addBrowseFolderListener(TextBrowseFolderListener(daemonBinaryDescriptor()))
     }
     private val listenBox = JBCheckBox("Listen for new traces (auto-attach when one lands)")
     private val stopOnEntryBox = JBCheckBox("Stop on entry")
@@ -75,4 +67,19 @@ class PeriscopeSettingsEditor : SettingsEditor<PeriscopeRunConfiguration>() {
     }
 
     override fun createEditor(): JComponent = root
+
+    private fun traceFileDescriptor(): FileChooserDescriptor =
+        FileChooserDescriptorFactory.createSingleFileDescriptor("cptrace")
+            .withTitle("Periscope Trace File")
+            .withDescription("Leave blank to auto-pick the newest .cptrace")
+
+    private fun traceDirDescriptor(): FileChooserDescriptor =
+        FileChooserDescriptorFactory.createSingleFolderDescriptor()
+            .withTitle("Periscope Trace Directory")
+            .withDescription("Directory where periscope-daemon writes .cptrace files")
+
+    private fun daemonBinaryDescriptor(): FileChooserDescriptor =
+        FileChooserDescriptorFactory.createSingleFileDescriptor()
+            .withTitle("periscope-daemon Binary")
+            .withDescription("Locate the periscope-daemon binary if not on PATH")
 }

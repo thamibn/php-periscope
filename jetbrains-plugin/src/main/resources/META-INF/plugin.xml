@@ -12,6 +12,22 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.7</h3>
+        <p>Six bugs found in a v0.1.6 audit, plus two features previously deferred to v0.2.</p>
+        <ul>
+            <li><b>Daemon-spawn errors now surface to the user</b> — pre-flight checks that <code>periscope-daemon</code> exists (absolute path or on PATH). Previously a missing or non-executable daemon caused the Debug window to open then close with no visible error (same silent-failure class as the v0.1.6 getState bug).</li>
+            <li><b>Breakpoints set before the session starts are no longer dropped on first run</b> — the handler buffers registrations and flushes them after the DAP <code>initialized</code> event. Previously every pre-session breakpoint silently failed and had to be toggled off-on after the toolwindow opened.</li>
+            <li><b>URL-encoded file paths now work</b> — breakpoints in project paths with spaces (<code>My%20Project/...</code>) no longer silently miss. The handler decodes via <code>VirtualFileManager.extractPath</code> with a manual <code>URLDecoder</code> fallback.</li>
+            <li><b>Listen-mode WatchService no longer leaks</b> on session cancel — the per-attempt coroutine scope is parented to a project Disposable, so Stop / project-close tears down the inotify handle cleanly.</li>
+            <li><b>DAP reader hardened</b> — case-insensitive <code>Content-Length</code> lookup per spec, safe cast on incoming messages (a non-JSON-object line on stdout no longer crashes the reader), and the reader catches <code>Throwable</code> rather than just <code>IOException</code> so <code>shutdownPending()</code> always runs.</li>
+            <li><b>Step Back button no longer flickers grey on session open</b> — toolbar enable now uses a sticky <code>sessionInitialized</code> flag instead of <code>dap.isAlive</code> directly.</li>
+        </ul>
+        <p>New features:</p>
+        <ul>
+            <li><b>ConsoleView wiring</b> — PHP code output (echo, var_dump, etc.) reconstructed from the trace now appears in the Debug → Console panel with full ANSI / search / fold support. stderr-class output is rendered in red. Buffered before the platform requests the console so startup output isn't lost.</li>
+            <li><b>Run-to-Position</b> (<code>Ctrl+Alt+F9</code>) — properly implemented via implicit continue-until-line on top of the existing trace replay. Previously fell back to Resume.</li>
+        </ul>
+        <p>Settings editor migrated to the non-deprecated <code>addBrowseFolderListener(TextBrowseFolderListener(...))</code> API for forward compatibility past 2026.1.</p>
         <h3>0.1.6</h3>
         <ul>
             <li><b>Fix: clicking Debug with the Periscope config selected did nothing</b> — <code>PeriscopeRunConfiguration.getState()</code> returned null, which makes the IntelliJ platform silently abort the launch <em>before</em> <code>PeriscopeDebuggerRunner.execute()</code> is ever called. Now returns a no-op <code>RunProfileState</code> so the platform proceeds to invoke the runner.</li>

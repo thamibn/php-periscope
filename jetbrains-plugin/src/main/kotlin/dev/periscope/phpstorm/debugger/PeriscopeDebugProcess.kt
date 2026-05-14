@@ -1,5 +1,11 @@
 package dev.periscope.phpstorm.debugger
 
+import com.intellij.execution.ExecutionResult
+import com.intellij.execution.filters.TextConsoleBuilderFactory
+import com.intellij.execution.process.ProcessHandler
+import com.intellij.execution.process.ProcessOutputTypes
+import com.intellij.execution.ui.ConsoleView
+import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.xdebugger.XDebugProcess
@@ -39,16 +45,26 @@ class PeriscopeDebugProcess(
     private val logger = thisLogger()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // The platform builds the ConsoleView lazily on first `createConsole()`
+    // call. We push daemon stdout/stderr into it once it exists; before that
+    // we buffer lines and replay on first attach so the user doesn't lose
+    // any startup output.
+    private val consoleBuffer = mutableListOf<Pair<String, ConsoleViewContentType>>()
+    @Volatile private var consoleView: ConsoleView? = null
+
     private val dap: DapClient = DapClient(
         daemonPath = daemonPath,
         args = listOf("--dap-stdio"),
-        onLog = { line -> logger.debug(line) },
+        onLog = { line -> pushConsole(line, ConsoleViewContentType.NORMAL_OUTPUT) },
     )
 
     private val editors = PeriscopeEditorsProvider()
     private val breakpointHandler = PeriscopeBreakpointHandler(breakpointType as Class<*>, dap, scope)
 
     @Volatile private var threadId: Int = 1
+    @Volatile private var sessionInitialized: Boolean = false
+    @Volatile private var pendingRunToLine: Int? = null
+    @Volatile private var pendingRunToFile: String? = null
 
     init {
         scope.launch { runSession() }
@@ -83,10 +99,22 @@ class PeriscopeDebugProcess(
             //    The daemon's `launch` already kicks off replay, so this is a
             //    formality, but DAP-compliant clients should send it.
             dap.sendRequestRaw("configurationDone", null)
+
+            // 5. Session is live: flush any breakpoints PhpStorm registered
+            //    before dap.start() returned, and mark the toolbar enabled so
+            //    Step Back stops flickering grey on session open.
+            sessionInitialized = true
+            breakpointHandler.flushPending()
         } catch (e: Exception) {
             logger.warn("Failed to start DAP session", e)
-            session.reportError("periscope-daemon failed to start: ${e.message}")
-            session.stop()
+            pushConsole(
+                "periscope: failed to start session: ${e.message}\n",
+                ConsoleViewContentType.ERROR_OUTPUT,
+            )
+            ApplicationManager.getApplication().invokeLater {
+                session.reportError("periscope-daemon failed to start: ${e.message}")
+                session.stop()
+            }
         }
     }
 
@@ -115,6 +143,33 @@ class PeriscopeDebugProcess(
                     StackTraceArguments(threadId = threadId, levels = 1),
                 )
                 val top = stack.stackFrames.firstOrNull() ?: return@launch
+
+                // Run-to-Position: if the daemon paused but we haven't reached
+                // the user's run-to target yet, transparently continue. The
+                // platform's runToPosition contract is "continue until we hit
+                // the target line or any other breakpoint" — Periscope models
+                // this client-side because the trace already contains every
+                // line and the daemon doesn't expose a one-shot location bp.
+                val runToFile = pendingRunToFile
+                val runToLine = pendingRunToLine
+                if (runToFile != null && runToLine != null) {
+                    val curFile = top.source?.path
+                    val curLine = top.line
+                    if (curFile != runToFile || curLine != runToLine) {
+                        // Not at target yet → continue replay. Any breakpoint
+                        // hit during the continue will land us back in
+                        // handleStopped naturally; if we hit the target line
+                        // first, the clause below clears the target.
+                        dap.sendRequestRaw(
+                            "continue",
+                            DapClient.JSON.encodeToJsonElement(ContinueArguments(threadId)),
+                        )
+                        return@launch
+                    }
+                    pendingRunToFile = null
+                    pendingRunToLine = null
+                }
+
                 val execStack = PeriscopeExecutionStack(threadId, dap, scope)
                 execStack.setTopFrame(PeriscopeStackFrame(top, dap, scope))
                 val context = PeriscopeSuspendContext(execStack)
@@ -129,9 +184,25 @@ class PeriscopeDebugProcess(
 
     private fun handleOutput(body: JsonObject) {
         val out = DapClient.JSON.decodeFromJsonElement<OutputEvent>(body)
-        // ConsoleView is created by XDebugSession; we'd push lines here.
-        // For v0.1.0-alpha, log to the IDE log; ConsoleView wiring lands in v0.2.
-        logger.info("[periscope-daemon stdout] ${out.output.trimEnd()}")
+        // DAP `output` events come from the user's PHP code (echo, var_dump,
+        // etc.) reconstructed from the trace. Send them to the IDE's
+        // ConsoleView so they appear in the Debug → Console panel.
+        val contentType = when (out.category) {
+            "stderr" -> ConsoleViewContentType.ERROR_OUTPUT
+            else -> ConsoleViewContentType.NORMAL_OUTPUT
+        }
+        pushConsole(out.output, contentType)
+    }
+
+    private fun pushConsole(text: String, type: ConsoleViewContentType) {
+        val cv = consoleView
+        if (cv != null) {
+            cv.print(text, type)
+        } else {
+            synchronized(consoleBuffer) {
+                consoleBuffer.add(text to type)
+            }
+        }
     }
 
     // ---------- XDebugProcess overrides — what PhpStorm's toolbar calls ----------
@@ -173,7 +244,9 @@ class PeriscopeDebugProcess(
     override fun stop() {
         scope.launch {
             try {
-                dap.sendNotification("disconnect")
+                if (dap.isAlive) dap.sendNotification("disconnect")
+            } catch (e: Exception) {
+                logger.debug("disconnect notification failed", e)
             } finally {
                 dap.close()
                 scope.cancel()
@@ -181,9 +254,31 @@ class PeriscopeDebugProcess(
         }
     }
 
+    /**
+     * Run-to-Position — continue replay until we land on the given source/line
+     * or hit any other breakpoint along the way. Records the target on the
+     * process; [handleStopped] consumes it on each stop and either auto-resumes
+     * or surfaces the pause to the user once the target is reached.
+     */
     override fun runToPosition(position: com.intellij.xdebugger.XSourcePosition, context: XSuspendContext?) {
-        // TODO: implement via temporary breakpoint + continue. v0.2 work.
+        pendingRunToFile = position.file.path
+        pendingRunToLine = position.line + 1 // DAP is 1-based, XSourcePosition is 0-based
         resume(context)
+    }
+
+    override fun createConsole(): ConsoleView {
+        // Default text console — gives us all the standard ConsoleView UI
+        // (timestamps, ANSI colors, search, copy/paste, fold-on-pattern) for
+        // free. We just feed strings into it from `pushConsole`.
+        val cv = TextConsoleBuilderFactory.getInstance().createBuilder(session.project).console
+        // Drain anything buffered before the platform asked us for a console
+        // so the user doesn't lose startup output.
+        synchronized(consoleBuffer) {
+            for ((text, type) in consoleBuffer) cv.print(text, type)
+            consoleBuffer.clear()
+        }
+        consoleView = cv
+        return cv
     }
 
     override fun getEditorsProvider(): XDebuggerEditorsProvider = editors
@@ -194,6 +289,11 @@ class PeriscopeDebugProcess(
     /** PhpStorm asks this to decide whether the Step Back button is enabled. */
     override fun checkCanInitBreakpoints(): Boolean = true
 
-    /** Show the toolbar Step Back button — this is the periscope-vs-Xdebug differentiator. */
-    override fun checkCanPerformCommands(): Boolean = dap.isAlive
+    /**
+     * Show the toolbar Step Back button — this is the periscope-vs-Xdebug
+     * differentiator. We use a sticky `sessionInitialized` flag instead of
+     * `dap.isAlive` directly so the button doesn't flicker grey during the
+     * tiny window between subprocess spawn and the `initialize` reply.
+     */
+    override fun checkCanPerformCommands(): Boolean = sessionInitialized && dap.isAlive
 }

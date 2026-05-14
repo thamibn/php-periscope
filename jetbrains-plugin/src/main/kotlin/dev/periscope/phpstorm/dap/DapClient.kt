@@ -133,8 +133,13 @@ class DapClient(
                 val msg = readNext() ?: break
                 dispatch(msg)
             }
-        } catch (e: IOException) {
-            onLog("DAP reader IO error: ${e.message}")
+        } catch (e: Throwable) {
+            // Catch Throwable, not just IOException — a ClassCastException from
+            // a malformed daemon message (e.g. accidental stderr leak onto
+            // stdout) would otherwise escape the loop and leave `pending`
+            // deferreds dangling forever. We always want shutdownPending() to
+            // run on any reader-side failure.
+            onLog("DAP reader error: ${e.javaClass.simpleName}: ${e.message}")
         } finally {
             shutdownPending()
             isAlive = false
@@ -142,14 +147,19 @@ class DapClient(
     }
 
     private fun readNext(): String? {
+        // DAP/LSP header lookup is case-insensitive per spec. Lowercase keys
+        // on insert + lookup so the daemon can emit "content-length:" without
+        // breaking the reader.
         val headers = mutableMapOf<String, String>()
         while (true) {
             val line = readLine(stdout) ?: return null
             if (line.isEmpty()) break
             val sep = line.indexOf(':')
-            if (sep > 0) headers[line.substring(0, sep).trim()] = line.substring(sep + 1).trim()
+            if (sep > 0) {
+                headers[line.substring(0, sep).trim().lowercase()] = line.substring(sep + 1).trim()
+            }
         }
-        val len = headers["Content-Length"]?.toIntOrNull()
+        val len = headers["content-length"]?.toIntOrNull()
             ?: throw IOException("Missing Content-Length header")
         val buf = ByteArray(len)
         var read = 0
@@ -175,7 +185,14 @@ class DapClient(
     }
 
     private fun dispatch(json: String) {
-        val element = JSON.parseToJsonElement(json) as JsonObject
+        // Safe cast — non-object top-level (array, primitive) becomes null and
+        // we log+skip instead of throwing ClassCastException. Robust to any
+        // accidental stderr-on-stdout leakage from the daemon.
+        val element = JSON.parseToJsonElement(json) as? JsonObject
+        if (element == null) {
+            onLog("DAP: dropping non-object message: ${json.take(200)}")
+            return
+        }
         when (element["type"]?.toString()?.trim('"')) {
             "response" -> {
                 val resp = JSON.decodeFromString<DapResponse>(json)

@@ -123,18 +123,24 @@ class DaemonAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
 
 class DefaultConfigProvider implements vscode.DebugConfigurationProvider {
   resolveDebugConfiguration(
-    folder: vscode.WorkspaceFolder | undefined,
-    config: vscode.DebugConfiguration,
+    _folder: vscode.WorkspaceFolder | undefined,
+    debugConfig: vscode.DebugConfiguration,
   ): vscode.ProviderResult<vscode.DebugConfiguration> {
-    if (!config.type && !config.request && !config.name) {
+    if (!debugConfig.type && !debugConfig.request && !debugConfig.name) {
       // User hit F5 without a launch.json — synthesize a sensible default.
-      config.type = DEBUG_TYPE;
-      config.request = "launch";
-      config.name = "Periscope: open latest trace";
-      config.tracePath = `${folder?.uri.fsPath ?? "${workspaceFolder}"}/tmp/periscope/latest.cptrace`;
-      config.stopOnEntry = false;
+      // Default `tracePath` to the daemon's standard trace directory so the
+      // adapter can auto-pick the newest .cptrace. Previously we hardcoded
+      // `${workspaceFolder}/tmp/periscope/latest.cptrace` — that file never
+      // existed and F5 hung waiting for it (same shape as the JetBrains
+      // plugin issue fixed in v0.1.4). The daemon side knows how to glob a
+      // directory for the newest trace.
+      debugConfig.type = DEBUG_TYPE;
+      debugConfig.request = "launch";
+      debugConfig.name = "Periscope: latest trace";
+      debugConfig.tracePath = config().get<string>("traceDir", "/tmp/periscope");
+      debugConfig.stopOnEntry = false;
     }
-    return config;
+    return debugConfig;
   }
 }
 
