@@ -56,9 +56,16 @@ class PeriscopeRunConfiguration(
     override fun suggestedName(): String = "Periscope"
 
     @Throws(ExecutionException::class)
-    override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState? {
-        // The actual DAP session is started by [PeriscopeDebuggerRunner] using XDebugSession;
-        // no command-line state to launch here.
-        return null
+    override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState {
+        // CRITICAL: must NOT return null. The IntelliJ platform calls
+        // RunConfiguration.getState() before invoking the runner; a null
+        // result silently aborts the launch *before* PeriscopeDebuggerRunner
+        // ever gets called, so the user clicks Debug and nothing happens.
+        //
+        // We have no command line to launch (the daemon is spawned later
+        // from PeriscopeDebugProcess), so this is a no-op state whose
+        // execute() returns null. PeriscopeDebuggerRunner ignores `state`
+        // entirely; this exists only to keep the platform from bailing.
+        return RunProfileState { _, _ -> null }
     }
 }

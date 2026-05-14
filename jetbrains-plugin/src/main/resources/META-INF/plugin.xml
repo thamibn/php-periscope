@@ -12,6 +12,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.6</h3>
+        <ul>
+            <li><b>Fix: clicking Debug with the Periscope config selected did nothing</b> — <code>PeriscopeRunConfiguration.getState()</code> returned null, which makes the IntelliJ platform silently abort the launch <em>before</em> <code>PeriscopeDebuggerRunner.execute()</code> is ever called. Now returns a no-op <code>RunProfileState</code> so the platform proceeds to invoke the runner.</li>
+        </ul>
         <h3>0.1.5</h3>
         <ul>
             <li><b>Fix duplicate-scheme rejection</b> — when a Periscope run config already existed in <code>.idea/runConfigurations/Periscope.xml</code>, the platform silently rejected the auto-seeded one and the resulting "Switch to Periscope" balloon action did nothing. Now: skip seeding when an on-disk or in-memory Periscope config is detected, and resolve the live settings at click-time so the dropdown actually switches.</li>
