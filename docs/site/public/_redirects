@@ -8,4 +8,4 @@
 # Requests for periscope.thamibn.com don't match this rule and are
 # served normally; only the .pages.dev origin triggers the bounce.
 
-https://php-periscope-docs.pages.dev/* https://periscope.thamibn.com/:splat 301
+https://php-periscope-docs.pages.dev/* https://periscope.thamibn.com/:splat 301!
