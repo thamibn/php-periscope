@@ -29,6 +29,8 @@
         <programRunner
             implementation="dev.periscope.phpstorm.runconfig.PeriscopeDebuggerRunner"/>
         <notificationGroup id="Periscope" displayType="BALLOON"/>
+        <postStartupActivity
+            implementation="dev.periscope.phpstorm.runconfig.PeriscopeAutoConfigActivity"/>
     </extensions>
 
     <actions>
