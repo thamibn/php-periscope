@@ -599,16 +599,20 @@ else
 fi
 ok "installed: $INSTALL_SO"
 
-# Back up existing ini, then write a fresh one
-if [[ -f "$INI_FILE" ]]; then
-  if [[ $DRY_RUN -eq 1 ]]; then
-    printf "  \033[2m(dry-run)\033[0m backup %s -> %s.bak\n" "$INI_FILE" "$INI_FILE"
-  elif [[ -w "$(dirname "$INI_FILE")" ]]; then
-    cp "$INI_FILE" "$INI_FILE.bak"
+# Back up the existing ini only if it differs from what we're about to write.
+# Idempotent re-installs (most cases) leave .bak alone; user-edited inis are
+# preserved as .bak before being overwritten.
+if [[ -f "$INI_FILE" ]] && [[ $DRY_RUN -eq 0 ]]; then
+  if cmp -s <(printf '%s\n' "$INI_BODY") "$INI_FILE"; then
+    trace "ini already up to date — no backup needed"
   else
-    sudo cp "$INI_FILE" "$INI_FILE.bak"
+    if [[ -w "$(dirname "$INI_FILE")" ]]; then
+      cp "$INI_FILE" "$INI_FILE.bak"
+    else
+      sudo cp "$INI_FILE" "$INI_FILE.bak"
+    fi
+    warn "existing $(basename "$INI_FILE") differs from new content — backed up to .bak"
   fi
-  warn "backed up existing $(basename "$INI_FILE") to .bak"
 fi
 
 INI_BODY="$(cat <<EOF
