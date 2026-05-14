@@ -77,6 +77,6 @@ Telescope is read-only after the fact. Xdebug needs a re-run with breakpoints. D
 
 ## Status
 
-**v0.1.0.** Built for PHP 8.3 + 8.4 on macOS + Linux. Laravel-only on the framework side (Laravel 12 / 13); the C extension is framework-agnostic and Symfony / WordPress adapters are post-v1.
+**v0.1.4.** Built for PHP 8.3 + 8.4 on macOS + Linux. Laravel-only on the framework side (Laravel 12 / 13); the C extension is framework-agnostic and Symfony / WordPress adapters are post-v1.
 
 See [docs/ROADMAP.md](/guide/roadmap) for what's next.

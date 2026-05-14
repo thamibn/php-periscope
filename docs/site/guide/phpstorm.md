@@ -3,7 +3,7 @@
 Periscope ships a **first-party PhpStorm plugin** — `dev.periscope.phpstorm` — built on JetBrains' DAP-client API. Step Over, Step Into, Step Out, breakpoints, variables, watches, evaluate-expression, and **Step Back** (the button Xdebug never has) all work in PhpStorm's native debug toolbar.
 
 ::: tip Status
-v0.1.0. Compatible with PhpStorm **2024.2+** (build `242.*` through `251.*`). The install is a single command — no Gradle, no Java, no source clone. The pre-built `.zip` is dropped into every PhpStorm install on your machine.
+v0.1.4. Compatible with PhpStorm **2024.2+** (build `242.*` through `303.*`). The install is a single command — no Gradle, no Java, no source clone. The pre-built `.zip` is dropped into every PhpStorm install on your machine.
 :::
 
 ## The whole install, end to end
@@ -20,7 +20,7 @@ If you already had periscope installed (just the extension + daemon), re-run the
 
 ## Verify the plugin is there
 
-PhpStorm → **Settings → Plugins → Installed** → search for `php-periscope`. Should be enabled, version `0.1.0`.
+PhpStorm → **Settings → Plugins → Installed** → search for `php-periscope`. Should be enabled, version `0.1.4` or newer.
 
 ## Try it on an existing Laravel app
 
@@ -112,7 +112,7 @@ Most users won't need this — the one-liner is the path.
 - ❌ **JetBrains Marketplace listing.** v0.3 public-beta milestone. Until then, install via the script or the custom repository URL above.
 - ❌ **Gutter actions** ("Open trace at this line", "Scrub to this frame"). v0.2.
 - ❌ **Embedded tool window with the SolidJS UI** (`JCEF`-based). v0.2. For now the browser UI at `:9999` covers it.
-- ❌ **Run-to-Position** (`Ctrl+Alt+F9`). Falls back to Resume in v0.1.0.
+- ❌ **Run-to-Position** (`Ctrl+Alt+F9`). Falls back to Resume in v0.1.x.
 
 ## If something doesn't work
 

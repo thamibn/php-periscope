@@ -18,6 +18,11 @@ on:
     paths:
       - "docs/site/**"
       - ".github/workflows/docs.yml"
+    # Always rebuild on a release tag — the site's version banner is
+    # resolved from the GitHub Releases API at build time, so a new tag
+    # changes the rendered output even when docs/site/** is untouched.
+    tags:
+      - "v*"
   pull_request:
     branches: [main]
     paths:
@@ -69,7 +74,12 @@ jobs:
   deploy:
     name: deploy to Cloudflare Pages
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy on a real push to main, a release-tag push, or a manual re-run
+    # from the Actions tab. Workflow-dispatch is how we re-publish after a
+    # release was cut without a corresponding docs commit.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     environment:
       name: production
