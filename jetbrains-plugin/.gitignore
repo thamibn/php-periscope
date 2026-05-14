@@ -1,0 +1,10 @@
+.gradle/
+build/
+.idea/
+*.iml
+out/
+.kotlin/
+
+# Marketplace publishing token must never be committed
+.marketplace-token
+local.properties

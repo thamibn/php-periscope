@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Custom JetBrains plugin repository for php-periscope.
+  Add this URL once in PhpStorm:
+    Settings → Plugins → ⚙ → Manage Plugin Repositories → + →
+    https://periscope.thamibn.com/jetbrains/updatePlugins.xml
+
+  PhpStorm polls it on the same cadence as plugins.jetbrains.com and auto-installs
+  new versions without going through the JetBrains Marketplace.
+
+  CI updates this file on every tagged release so the `version` and `url` always
+  point at the latest .zip attached to the matching GitHub Release.
+-->
+<plugins>
+  <plugin id="dev.periscope.phpstorm"
+          url="https://github.com/thamibn/php-periscope/releases/latest/download/periscope-jetbrains.zip"
+          version="0.1.0-alpha">
+    <name>php-periscope</name>
+    <description><![CDATA[
+      Live observability + time-travel debugger for Laravel.
+      Pauses any request, surfaces every variable / SQL query / log / job / event /
+      cache hit / Redis command / outbound HTTP call up to the paused line — and
+      lets you scrub backward in time. Step Back button works (Xdebug never has it).
+    ]]></description>
+    <vendor email="thamibn@gmail.com" url="https://periscope.thamibn.com">periscopephp</vendor>
+    <idea-version since-build="242.0" until-build="251.*"/>
+    <change-notes><![CDATA[
+      <h3>0.1.0-alpha</h3>
+      <ul>
+        <li>Initial release. DAP client + Run/Debug configuration.</li>
+        <li>Step Over / Step Into / Step Out / <strong>Step Back</strong>.</li>
+        <li>Breakpoints (incl. conditional), variables, watches, evaluate.</li>
+      </ul>
+    ]]></change-notes>
+  </plugin>
+</plugins>

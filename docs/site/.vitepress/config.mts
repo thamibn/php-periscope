@@ -1,6 +1,13 @@
 import { defineConfig } from "vitepress";
+import { tabsMarkdownPlugin } from "vitepress-plugin-tabs";
 
 export default defineConfig({
+  markdown: {
+    config(md) {
+      md.use(tabsMarkdownPlugin);
+    },
+  },
+
   lang: "en-US",
   title: "php-periscope",
   description:

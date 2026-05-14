@@ -1,0 +1,93 @@
+name: JetBrains plugin
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+    paths:
+      - "jetbrains-plugin/**"
+      - ".github/workflows/jetbrains-plugin.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "jetbrains-plugin/**"
+      - ".github/workflows/jetbrains-plugin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to attach the .zip to a Release on tag pushes
+
+jobs:
+  build:
+    name: build .zip
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jetbrains-plugin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Build plugin
+        run: ./gradlew buildPlugin --no-daemon --stacktrace
+
+      - name: Rename .zip to stable filename
+        run: |
+          cd build/distributions
+          original="$(ls *.zip | head -1)"
+          cp "$original" periscope-jetbrains.zip
+          ls -lah
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: periscope-jetbrains
+          path: jetbrains-plugin/build/distributions/*.zip
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release (on tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            jetbrains-plugin/build/distributions/periscope-jetbrains.zip
+            jetbrains-plugin/build/distributions/periscope-jetbrains-*.zip
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+
+  verify:
+    name: plugin verifier
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    defaults:
+      run:
+        working-directory: jetbrains-plugin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Run IntelliJ Plugin Verifier
+        run: ./gradlew verifyPlugin --no-daemon
+        continue-on-error: true  # surface results but don't block early releases on warnings

@@ -111,9 +111,13 @@ claude mcp add periscope -- php artisan mcp:start periscope
 
 From there your AI can call `list_traces`, `get_summary`, `get_insights`, `query_events`, `get_state` (time-travel to a specific microsecond), and `read_file`. See [Architecture → AI-native](/guide/architecture#ai-native) for the tool set.
 
-## VSCode integration
+## IDE integration
 
-Install the VSCode extension once it ships on the marketplace (`periscopephp.php-periscope`). Until then, build locally from `vscode-extension/`:
+::: tabs
+
+== VSCode
+
+Marketplace listing (`periscopephp.php-periscope`) lands in v0.2. Until then, build locally from `vscode-extension/`:
 
 ```bash
 cd vscode-extension
@@ -121,10 +125,25 @@ npm install && npm run package
 code --install-extension php-periscope-0.1.0.vsix
 ```
 
-Hit **F5** in your Laravel project — periscope synthesises a launch config that opens the most recent trace. Step-in / step-over / step-out / **step-back** all work via the daemon's DAP transport.
+Hit **F5** in your Laravel project — periscope synthesises a launch config that opens the most recent trace. Step Over / Step Into / Step Out / **Step Back** all work via the daemon's DAP transport.
+
+== PhpStorm
+
+The install script you ran above **already dropped the JetBrains plugin into every PhpStorm install on your machine** — no separate step. Restart any open PhpStorm window, then:
+
+1. **Run → Edit Configurations → + → Periscope**
+2. Pick your trace file (default: `$ProjectFileDir$/tmp/periscope/latest.cptrace`)
+3. Hit **Shift+F9**
+
+You get PhpStorm's native debug toolbar (Step Over, Step Into, Step Out, Resume) — plus the **Step Back** button Xdebug never has. Same Variables / Watches / Call Stack panels you already know.
+
+Full walkthrough: **[PhpStorm setup →](/guide/phpstorm)**.
+
+:::
 
 ## What's next?
 
+- [PhpStorm setup](/guide/phpstorm) — register the plugin's Run/Debug config + first breakpoint.
 - [Architecture](/guide/architecture) — what's inside the extension, the daemon, and the adapter.
 - [Known limitations](/guide/known-limitations) — what doesn't work in v1.
 - [FAQ](/guide/faq) — common questions about overhead, data privacy, and compatibility.

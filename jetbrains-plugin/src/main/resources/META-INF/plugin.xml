@@ -1,0 +1,32 @@
+<idea-plugin>
+    <id>dev.periscope.phpstorm</id>
+    <name>php-periscope</name>
+    <vendor email="thamibn@gmail.com" url="https://periscope.thamibn.com">periscopephp</vendor>
+
+    <description><![CDATA[
+        <p>Live observability + time-travel debugger for Laravel. Pauses any request, shows every
+        variable, SQL query, log line, dispatched job, fired event, cache hit, Redis command, and
+        outbound HTTP call that occurred up to the paused line — and lets you scrub backward in time.</p>
+        <p>Connects to <code>periscope-daemon</code> over DAP-stdio. Supports breakpoints,
+        step over / into / out, <strong>step back</strong>, variables, watches, evaluate.</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>0.1.0-alpha</h3>
+        <ul>
+            <li>Initial scaffold — registers the <code>periscope</code> debug type and Run/Debug configuration.</li>
+        </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.xdebugger</depends>
+    <depends>com.intellij.modules.lang</depends>
+    <depends>com.jetbrains.php</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <configurationType
+            implementation="dev.periscope.phpstorm.runconfig.PeriscopeRunConfigurationType"/>
+        <programRunner
+            implementation="dev.periscope.phpstorm.runconfig.PeriscopeDebuggerRunner"/>
+    </extensions>
+</idea-plugin>

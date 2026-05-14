@@ -284,6 +284,62 @@ install_bin "$DAEMON_BIN" periscope-daemon
 [[ -f "$DUMP_BIN"   ]] && install_bin "$DUMP_BIN"   periscope-dump   || warn "skipped periscope-dump (not built)"
 [[ -f "$EXPORT_BIN" ]] && install_bin "$EXPORT_BIN" periscope-export || warn "skipped periscope-export (not built)"
 
+# ---------- JetBrains plugin (PhpStorm) ----------
+
+step "install JetBrains plugin (if PhpStorm detected)"
+install_jetbrains_plugin() {
+  # Detect every PhpStorm install on this machine.
+  local ide_dirs=()
+  case "$(uname -s)" in
+    Darwin) for d in "$HOME/Library/Application Support/JetBrains/"PhpStorm* ; do [[ -d "$d" ]] && ide_dirs+=("$d") ; done ;;
+    Linux)  for d in "$HOME/.local/share/JetBrains/"PhpStorm*               ; do [[ -d "$d" ]] && ide_dirs+=("$d") ; done ;;
+  esac
+
+  if [[ ${#ide_dirs[@]} -eq 0 ]]; then
+    warn "no PhpStorm install detected — skipping JetBrains plugin (this is fine if you use VSCode)"
+    return 0
+  fi
+
+  # Source the .zip — prefer locally-built artefact for contributor flow,
+  # fall back to GitHub Releases for everyone else.
+  local zip_src
+  local local_zip
+  local_zip="$(ls -t "$ROOT/jetbrains-plugin/build/distributions/"*.zip 2>/dev/null | head -1 || true)"
+  if [[ -n "$local_zip" ]]; then
+    zip_src="$local_zip"
+    trace "using locally-built plugin: $zip_src"
+  else
+    zip_src="$(mktemp -t periscope-jetbrains-XXXXXX.zip)"
+    local zip_url="https://github.com/thamibn/php-periscope/releases/latest/download/periscope-jetbrains.zip"
+    trace "fetching $zip_url"
+    if [[ $DRY_RUN -eq 1 ]]; then
+      printf "  \033[2m(dry-run)\033[0m curl -fsSL %s -o %s\n" "$zip_url" "$zip_src"
+    else
+      if ! curl -fsSL "$zip_url" -o "$zip_src"; then
+        warn "could not download JetBrains plugin from GitHub Releases — skipping"
+        return 0
+      fi
+    fi
+  fi
+
+  for ide_dir in "${ide_dirs[@]}"; do
+    local plugins_dir="$ide_dir/plugins"
+    run mkdir -p "$plugins_dir"
+    # Nuke any prior periscope plugin install so unzip can write fresh.
+    run rm -rf "$plugins_dir/periscope-jetbrains"
+    if [[ $DRY_RUN -eq 1 ]]; then
+      printf "  \033[2m(dry-run)\033[0m unzip -q -o %s -d %s\n" "$zip_src" "$plugins_dir"
+    else
+      unzip -q -o "$zip_src" -d "$plugins_dir"
+    fi
+    ok "plugin installed: $(basename "$ide_dir")"
+  done
+
+  # Cleanup tempfile only if we downloaded it (don't delete the contributor's local build).
+  [[ "$zip_src" != "$local_zip" ]] && rm -f "$zip_src" || true
+}
+install_jetbrains_plugin
+
 # ---------- verify ----------
 
 step "verify"
@@ -306,10 +362,29 @@ step "done"
 cat <<EOF
 
   Next steps:
-    1. Start the daemon:           periscope-daemon
+    1. Start the daemon:             periscope-daemon
     2. Install the Laravel adapter:  composer require periscopephp/laravel
-    3. Open http://localhost:9999  in your browser
-    4. Read the next request you trigger from your Laravel app.
+    3. Open http://localhost:9999    in your browser
+    4. Hit any route in your Laravel app — the trace appears in the UI.
+
+  IDE setup:
+    - VSCode:    install the periscope extension (built from vscode-extension/),
+                 hit F5 — debugger attaches to the latest .cptrace.
+    - PhpStorm:  plugin is already installed by this script. Restart PhpStorm,
+                 then Run > Edit Configurations > + > Periscope > pick a trace.
+                 Hit Shift+F9 — breakpoints + step + STEP BACK all work.
+
+  Updating later:
+    A. Manual — re-run this same one-liner whenever you want the newest version:
+         bash <(curl -fsSL https://raw.githubusercontent.com/thamibn/php-periscope/main/scripts/install.sh)
+       Idempotent. Updates the extension, daemon, and JetBrains plugin to whatever
+       the latest GitHub Release ships. Use this if you prefer "I update on my schedule".
+
+    B. Automatic — opt into PhpStorm's update channel for just the JB plugin:
+         PhpStorm > Settings > Plugins > ⚙ > Manage Plugin Repositories > + >
+           https://periscope.thamibn.com/jetbrains/updatePlugins.xml
+       PhpStorm checks the URL on its normal update cycle and offers the new
+       version in the IDE notification, same as marketplace plugins.
 
   Wire AI agents:
     claude mcp add periscope -- php artisan mcp:start periscope
