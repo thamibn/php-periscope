@@ -101,6 +101,24 @@ The timeline scrubber state updates at 60fps when dragging. SolidJS's fine-grain
 
 Cap'n Proto is zero-copy on read. Our daemon scans traces at every cursor move; zero-copy decoding means the latency stays imperceptible even on multi-MB traces. Protobuf needs a full parse per read.
 
+## Why isn't Windows native supported?
+
+A combination of engineering cost and audience math.
+
+**Engineering:**
+
+- PHP extensions on Windows use a different build script (`config.w32`) and need MSVC built against the same Visual Studio version PHP itself uses. The C extension would need a parallel build path.
+- Cap'n Proto C++ on Windows needs vcpkg/MSVC; the daemon's IPC layer needs Windows named-pipe variants of the Unix domain sockets we use today.
+- `scripts/install.sh` is bash — Windows would need a PowerShell twin.
+- CI runners × PHP versions × ASan would double or triple the cost of every run.
+
+**Audience math:**
+
+- Most Laravel devs on Windows already use **WSL2** (or Docker, which is built on WSL2 on Windows anyway). Laravel Sail explicitly targets WSL2.
+- WSL2 runs our Linux install path with zero changes. We get Windows users covered at near-zero cost to us; native support would double our CI matrix and test surface for a small additional audience.
+
+Setup is one PowerShell command: `wsl --install -d Ubuntu-22.04`. See the [Windows section in Getting Started](/guide/getting-started#windows-wsl2).
+
 ## I have a different question.
 
 [Open a discussion](https://github.com/thamibn/php-periscope/discussions) — we'll add it here if it's broadly useful.

@@ -12,10 +12,24 @@ A live observability + time-travel debugger built **for Laravel**. Pause any req
 
 ## Quickstart
 
-```bash
-# one-line install (macOS + Linux)
-bash <(curl -fsSL https://raw.githubusercontent.com/thamibn/php-periscope/main/scripts/install.sh)
+**Install** — pick one:
 
+```bash
+# macOS (recommended) — Homebrew tap, single command:
+brew tap periscopephp/php-periscope https://github.com/thamibn/php-periscope.git
+brew install --HEAD periscopephp/php-periscope/php-periscope
+
+# Linux + any Unix shell — one-liner, no Homebrew required:
+bash <(curl -fsSL https://raw.githubusercontent.com/thamibn/php-periscope/main/scripts/install.sh)
+```
+
+Both build the C extension against your PHP, drop the daemon binaries into your prefix, and write `99-periscope.ini` so the extension auto-loads. Pick whichever you'd run for any other CLI tool.
+
+**Windows:** use **WSL2** with Ubuntu, then run the Linux command above inside Ubuntu. Native Windows is not supported in v1 — see [the FAQ](https://periscope.thamibn.com/guide/faq#why-isnt-windows-native-supported) for why and the [Windows setup section](https://periscope.thamibn.com/guide/getting-started#windows-wsl2) for the one-time `wsl --install` step.
+
+**Then in your Laravel app:**
+
+```bash
 # add to any Laravel 11 / 12 / 13 app
 composer require periscopephp/laravel
 
@@ -27,7 +41,7 @@ open http://127.0.0.1:9999
 claude mcp add periscope -- php artisan mcp:start periscope
 ```
 
-Full setup walk-through, including the Homebrew tap and the VSCode extension: **[Getting Started →](docs/site/guide/getting-started.md)**
+Full setup walk-through, including the Homebrew tap and the VSCode extension: **[Getting Started →](https://periscope.thamibn.com/guide/getting-started)**
 
 ## What it does
 

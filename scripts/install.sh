@@ -80,8 +80,37 @@ fi
 uname_s="$(uname -s)"
 case "$uname_s" in
   Darwin) os="macos" ;;
-  Linux)  os="linux" ;;
-  *)      fail "unsupported OS: $uname_s. periscope ships for macOS and Linux only." ;;
+  Linux)
+    os="linux"
+    # Detect WSL2 — installs work fine here; just flag it so users with a
+    # broken WSL DNS / kernel setup see the hint up front.
+    if [[ -r /proc/version ]] && grep -qiE "microsoft|wsl" /proc/version; then
+      ok "WSL2 detected — proceeding as Linux."
+    fi
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    cat >&2 <<'EOF'
+periscope does not ship for native Windows.
+
+You're seeing this because you're running under Git-Bash / MSYS / Cygwin,
+which presents a Unix-y shell on top of Windows. The C extension and the
+trace recorder need Linux-native syscalls that don't have clean Windows
+equivalents in v1.
+
+Use WSL2 instead — one-time setup from an Admin PowerShell:
+
+  wsl --install -d Ubuntu-22.04
+  wsl --set-default-version 2
+
+Reboot, finish Ubuntu's first-run setup, then open the Ubuntu terminal
+and re-run this install script there.
+
+Why WSL specifically and not Windows native? See:
+  https://periscope.thamibn.com/guide/faq#why-isnt-windows-native-supported
+EOF
+    exit 1
+    ;;
+  *) fail "unsupported OS: $uname_s. periscope ships for macOS and Linux only." ;;
 esac
 ok "OS: $os"
 

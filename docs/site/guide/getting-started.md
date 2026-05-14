@@ -4,12 +4,27 @@ In about three minutes you'll have the extension loaded, the daemon running, and
 
 ## Prerequisites
 
-- **macOS 13+ or Linux** (Ubuntu 22.04+ tested). Windows users — use WSL2.
+- **macOS 13+ or Linux** (Ubuntu 22.04+ tested). Windows: see [the Windows section below](#windows-wsl2).
 - **PHP 8.3** (8.4 also works). v1 doesn't support older PHPs.
 - **A C++17 toolchain.** Clang on macOS (Xcode CLT), gcc on Linux.
 - **Rust** (rustup) — needed to build the daemon.
 - **Cap'n Proto C++ library**: `brew install capnp` / `apt-get install libcapnp-dev capnproto`.
 - **A Laravel app.** Adapter targets 11 / 12 / 13.
+
+### Windows (WSL2)
+
+Windows native is **not supported and never will be** — the C extension hooks into the Zend engine in ways that don't have a clean Windows-native equivalent in scope for v1. The supported path is **WSL2 with Ubuntu**, which is the same setup Laravel Sail and most modern PHP-on-Windows tooling uses.
+
+One-time setup (open PowerShell as administrator):
+
+```powershell
+wsl --install -d Ubuntu-22.04
+wsl --set-default-version 2
+```
+
+Reboot, finish Ubuntu's first-run user setup, then open the Ubuntu terminal. From there everything in this guide works exactly as on a native Linux box — `apt-get install libcapnp-dev capnproto php8.3-dev`, run the install script, `composer require periscopephp/laravel`, etc.
+
+Your Windows IDE (VSCode, PhpStorm) connects to WSL the standard way: VSCode's **Remote - WSL** extension or PhpStorm's **WSL Interpreter** setting. The periscope UI at `http://localhost:9999` is reachable from Windows because WSL2 forwards localhost transparently.
 
 ## Install in one line
 
