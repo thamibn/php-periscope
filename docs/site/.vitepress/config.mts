@@ -1,17 +1,22 @@
 import { defineConfig } from "vitepress";
 import { tabsMarkdownPlugin } from "vitepress-plugin-tabs";
-import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Resolve the latest version automatically:
-//   1. DOCS_VERSION env var (e.g. set by a release workflow) wins.
-//   2. Otherwise read `git describe --tags --abbrev=0`.
-//   3. Fall back to "main" so previews of an unreleased branch still render.
-// Cloudflare Pages clones shallow by default — see scripts/cf-build.sh
-// which runs `git fetch --tags --unshallow` before `vitepress build`.
+// Version is resolved by scripts/resolve-version.mjs (runs in `prebuild`) and
+// written to .vitepress/cache/version.json. That script tries DOCS_VERSION env
+// var → GitHub API for latest release → git describe → "main". Reading
+// synchronously here keeps the config simple.
 const docsVersion = (() => {
-  if (process.env.DOCS_VERSION) return process.env.DOCS_VERSION;
   try {
-    return execSync("git describe --tags --abbrev=0", { encoding: "utf8" }).trim();
+    const versionFile = resolve(
+      fileURLToPath(new URL("./cache/version.json", import.meta.url)),
+    );
+    const data = JSON.parse(readFileSync(versionFile, "utf8"));
+    return typeof data.version === "string" && data.version.length > 0
+      ? data.version
+      : "main";
   } catch {
     return "main";
   }

@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vitepress dev .",
-    "build": "vitepress build .",
+    "resolve-version": "node scripts/resolve-version.mjs",
+    "dev": "npm run resolve-version && vitepress dev .",
+    "build": "npm run resolve-version && vitepress build .",
     "preview": "vitepress preview ."
   },
   "devDependencies": {
