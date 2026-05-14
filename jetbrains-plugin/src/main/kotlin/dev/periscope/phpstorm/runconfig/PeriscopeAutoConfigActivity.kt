@@ -2,27 +2,26 @@ package dev.periscope.phpstorm.runconfig
 
 import com.intellij.execution.RunManager
 import com.intellij.execution.RunnerAndConfigurationSettings
-import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import com.intellij.openapi.util.Key
 
 /**
- * Two-step zero-config UX on project open:
+ * Zero-config UX on **first** project open — strictly one-shot per project.
  *
- *   1. **Silently seed** a default "Periscope" run configuration if none
- *      exists. The entry appears in the run-config dropdown alongside any
- *      Xdebug configs the user already has.
+ *   * If a Periscope run config already exists in `.idea/runConfigurations/`,
+ *     do nothing. Don't re-seed, don't re-nudge.
+ *   * Otherwise: silently create a default "Periscope" run config (so it
+ *     appears in the dropdown next to Xdebug) and, if the user is currently
+ *     sitting on a different config, surface a one-time balloon telling them
+ *     the new entry is available with a "Switch to Periscope" action.
  *
- *   2. **Nudge with a balloon** *only when* the user is currently sitting
- *      on a non-Periscope config (Xdebug, PHP Script, etc.). If Periscope
- *      is already the selected config, we stay silent — no point telling
- *      them about something they're already using. One-shot per IDE
- *      session, plus a persistent "Don't show again" opt-out.
+ * Because run configs live in `.idea/`, they're inherently per-project — each
+ * project gets its own Periscope entry. The factory defaults are identical
+ * across projects, so functionally they behave the same everywhere.
  */
 class PeriscopeAutoConfigActivity : ProjectActivity {
 
@@ -31,24 +30,21 @@ class PeriscopeAutoConfigActivity : ProjectActivity {
 
         val runManager = RunManager.getInstance(project)
         val type = PeriscopeRunConfigurationType()
-        val existing = runManager.getConfigurationSettingsList(type)
-        val settings: RunnerAndConfigurationSettings =
-            if (existing.isNotEmpty()) existing.first() else seedConfig(runManager, type)
 
-        // Only nudge when the user has a different config selected — Xdebug,
-        // PHPUnit, plain Run, etc. If Periscope is already current, stay quiet.
+        // Early-exit: a Periscope config already exists in this project. Don't
+        // re-seed, don't re-nudge — the user has already been introduced to it.
+        if (runManager.getConfigurationSettingsList(type).isNotEmpty()) return
+
+        val settings = seedConfig(runManager, type)
+
+        // Fresh seed → user hasn't seen Periscope in this project before. If
+        // they're currently on another config (Xdebug, PHPUnit, plain Run),
+        // surface a one-time balloon so they discover the new entry. Skip
+        // when Periscope is somehow already the selected one (edge case).
         val selected = runManager.selectedConfiguration?.configuration
         if (selected is PeriscopeRunConfiguration) return
 
-        // One-shot per IDE-project session so the balloon doesn't reappear on
-        // every config switch within the session.
-        if (project.getUserData(NOTIFIED_THIS_SESSION) == true) return
-        project.putUserData(NOTIFIED_THIS_SESSION, true)
-
-        val props = PropertiesComponent.getInstance(project)
-        if (props.getBoolean(DONT_NOTIFY_KEY, false)) return
-
-        notifyUser(project, settings, props)
+        notifyUser(project, settings)
     }
 
     private suspend fun seedConfig(
@@ -66,11 +62,7 @@ class PeriscopeAutoConfigActivity : ProjectActivity {
         return settings
     }
 
-    private fun notifyUser(
-        project: Project,
-        settings: RunnerAndConfigurationSettings,
-        props: PropertiesComponent,
-    ) {
+    private fun notifyUser(project: Project, settings: RunnerAndConfigurationSettings) {
         NotificationGroupManager.getInstance()
             .getNotificationGroup("Periscope")
             .createNotification(
@@ -84,14 +76,6 @@ class PeriscopeAutoConfigActivity : ProjectActivity {
                     }
                 }
             })
-            .addAction(NotificationAction.createSimple("Don't show again") {
-                props.setValue(DONT_NOTIFY_KEY, true)
-            })
             .notify(project)
-    }
-
-    private companion object {
-        val NOTIFIED_THIS_SESSION = Key.create<Boolean>("periscope.autoConfig.notifiedThisSession")
-        const val DONT_NOTIFY_KEY = "periscope.autoConfig.dontNotify"
     }
 }
