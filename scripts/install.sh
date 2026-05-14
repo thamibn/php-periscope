@@ -539,6 +539,12 @@ VSCODE_CLIS=("${_kept_vsc_clis[@]+"${_kept_vsc_clis[@]}"}")
 # ---------- build extension ----------
 
 step "build C extension"
+# Generate Cap'n Proto C++ from proto/trace.capnp into extension/. These files
+# (trace.capnp.{h,cpp}) are gitignored — regenerated on every fresh checkout.
+if [[ -f "$ROOT/proto/trace.capnp" ]]; then
+  run cd "$ROOT"
+  compile_step "capnp compile (trace schema)" sh -c "capnp compile -oc++:extension --src-prefix=proto proto/trace.capnp && mv extension/trace.capnp.c++ extension/trace.capnp.cpp"
+fi
 run cd "$ROOT/extension"
 # phpize fails noisily on dirty trees; clean first.
 if [[ -f Makefile ]]; then
