@@ -13,10 +13,21 @@ on:
     paths:
       - "jetbrains-plugin/**"
       - ".github/workflows/jetbrains-plugin.yml"
+  schedule:
+    # Weekly verifier — catches new IntelliJ versions breaking compat.
+    # Runs Sunday 03:00 UTC. Free Linux minutes, no rush.
+    - cron: "0 3 * * 0"
   workflow_dispatch:
 
 permissions:
   contents: write  # needed to attach the .zip to a Release on tag pushes
+
+# Cancel in-flight runs on the same ref when a new push arrives. The
+# difference between "I pushed 5 times in 2 minutes" being 5 full builds
+# vs 1 final build.
+concurrency:
+  group: jetbrains-plugin-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -66,11 +77,14 @@ jobs:
           fail_on_unmatched_files: false
           generate_release_notes: true
 
+  # Plugin verifier downloads ~1GB of IntelliJ binaries and takes ~5min.
+  # Not worth running on every push — moves to weekly cron + manual dispatch.
+  # Tag pushes still skip it (they're already releases; verifier results
+  # don't gate the release).
   verify:
     name: plugin verifier
-    needs: build
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     defaults:
       run:
         working-directory: jetbrains-plugin
@@ -90,4 +104,4 @@ jobs:
 
       - name: Run IntelliJ Plugin Verifier
         run: ./gradlew verifyPlugin --no-daemon
-        continue-on-error: true  # surface results but don't block early releases on warnings
+        continue-on-error: true

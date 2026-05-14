@@ -3,8 +3,25 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - "extension/**"
+      - "Makefile"
+      - "scripts/smoke.sh"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "extension/**"
+      - "Makefile"
+      - "scripts/smoke.sh"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+# A new push to the same branch cancels in-flight CI runs. Saves minutes on
+# rapid-iteration sessions where the latest push is the only one that matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -13,7 +30,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS minutes count 10x toward the free quota. Only burn them on PRs
+        # (full matrix) — push-to-main runs Linux-only and we trust the
+        # already-green PR build for macOS coverage.
+        os: ${{ github.event_name == 'pull_request' && fromJson('["ubuntu-latest", "macos-latest"]') || fromJson('["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,8 +74,12 @@ jobs:
       - name: Smoke tests
         run: bash scripts/smoke.sh
 
+  # ASan only runs on PRs — duplicates the Linux build job on push-to-main
+  # and the regular build catches the same compile-level issues. Keep it on
+  # PRs as a paranoia check, but stop spending minutes on every push.
   asan:
     name: build with AddressSanitizer (linux only)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

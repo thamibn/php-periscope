@@ -6,14 +6,18 @@ name: Link check
 # missing anchors before they ship.
 
 on:
-  push:
-    branches: [main]
+  # Pull requests only (catches new broken links in proposed changes).
+  # Push-to-main is dropped — the workflow has been red since the docs
+  # site moved to VitePress because lychee can't resolve root-relative
+  # `/guide/*` links without a base-dir flag. Re-enable push triggers
+  # after fixing the lychee args.
   pull_request:
     branches: [main]
   schedule:
     # Weekly run picks up external link rot (linked blog posts, packagist
     # pages, etc.) even when nothing in-repo has changed.
     - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
