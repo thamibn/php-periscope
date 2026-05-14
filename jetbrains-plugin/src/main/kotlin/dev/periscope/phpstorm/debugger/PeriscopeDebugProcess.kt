@@ -60,23 +60,30 @@ class PeriscopeDebugProcess(
         try {
             dap.start()
 
-            // 1. initialize → capabilities (we ignore most of these for now)
+            // 1. Subscribe to events BEFORE sending the first request — the daemon
+            //    emits the `initialized` event immediately after the initialize
+            //    response, and we can't afford to race with that.
+            scope.launch { listenForEvents() }
+
+            // 2. initialize → capabilities (we read but don't gate on them yet)
             dap.sendRequest<InitializeArguments, Capabilities>(
                 "initialize",
                 InitializeArguments(),
             )
 
-            // 2. start the event loop concurrently so we don't miss the `stopped`
-            //    event that arrives after launch.
-            val eventJob = scope.launch { listenForEvents() }
-
-            // 3. launch with the requested trace path
-            dap.sendRequest<LaunchArguments, JsonNull>(
+            // 3. launch — daemon opens the trace and emits `stopped: entry`.
+            //    Daemon returns an empty response body for `launch`, so we use
+            //    sendRequestRaw to avoid the "empty body" check in sendRequest<>().
+            dap.sendRequestRaw(
                 "launch",
-                LaunchArguments(tracePath = tracePath, stopOnEntry = stopOnEntry),
+                DapClient.JSON.encodeToJsonElement(
+                    LaunchArguments(tracePath = tracePath, stopOnEntry = stopOnEntry),
+                ),
             )
 
-            // 4. configurationDone — tells the daemon breakpoints are set
+            // 4. configurationDone — acknowledges the config phase is complete.
+            //    The daemon's `launch` already kicks off replay, so this is a
+            //    formality, but DAP-compliant clients should send it.
             dap.sendRequestRaw("configurationDone", null)
         } catch (e: Exception) {
             logger.warn("Failed to start DAP session", e)
