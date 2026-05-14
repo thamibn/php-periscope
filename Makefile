@@ -1,4 +1,4 @@
-.PHONY: extension extension-clean clean test test-phpt smoke smoke-laravel proto-gen trace-clean install uninstall help
+.PHONY: extension extension-clean clean test test-phpt test-laravel smoke smoke-laravel proto-gen trace-clean install uninstall help
 
 PERISCOPE_TRACE_DIR ?= /tmp/periscope
 
@@ -48,11 +48,12 @@ clean: extension-clean
 
 test:
 	cd extension && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 $(MAKE) test TESTS="-d periscope.verbose=1 tests/"
-	@PERISCOPE_VERBOSE=1 bash scripts/smoke.sh
+	@bash scripts/smoke.sh
+
+test-laravel:
 	@bash scripts/smoke-laravel-adapter.sh
 
-smoke-laravel:
-	@bash scripts/smoke-laravel-adapter.sh
+smoke-laravel: test-laravel
 
 trace-clean:
 	@if [ -d "$(PERISCOPE_TRACE_DIR)" ]; then \
