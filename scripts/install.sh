@@ -599,6 +599,18 @@ else
 fi
 ok "installed: $INSTALL_SO"
 
+# macOS Sequoia 15+ kills dlopen with "Invalid Page" (CODESIGNING namespace)
+# when a dylib was signed for a different on-disk path than where it lives.
+# `cp` from the build dir to extension_dir invalidates the runtime signature
+# even though `codesign --verify` still passes. Re-sign in place to fix it.
+if [[ "$os" = "macos" ]] && [[ $DRY_RUN -eq 0 ]]; then
+  if [[ -w "$INSTALL_SO" ]]; then
+    codesign --force --sign - "$INSTALL_SO" 2>/dev/null || true
+  else
+    sudo codesign --force --sign - "$INSTALL_SO" 2>/dev/null || true
+  fi
+fi
+
 # Back up the existing ini only if it differs from what we're about to write.
 # Idempotent re-installs (most cases) leave .bak alone; user-edited inis are
 # preserved as .bak before being overwritten.
