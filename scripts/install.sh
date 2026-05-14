@@ -811,18 +811,29 @@ install_vscode_extension() {
 
 cleanup_stale_vsix_versions() {
   local code_cli="$1" label="$2"
-  # Heuristic: code/cursor CLI typically lives in <root>/bin/<cmd>; the
-  # extensions folder is at $HOME/.{code,cursor}/extensions. Use the CLI
-  # name as the discriminator.
-  local cli_base
-  cli_base="$(basename "$code_cli")"
+  # Discriminate by .app bundle name, not by CLI basename — Cursor's CLI is
+  # ALSO named "code" (so basename matching would route Cursor to
+  # ~/.vscode/extensions and leave the real ~/.cursor cruft untouched).
+  # Resolve symlinks first so /usr/local/bin/cursor → its real location.
+  local resolved
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$code_cli" 2>/dev/null || echo "$code_cli")"
+  else
+    resolved="$code_cli"
+  fi
   local ext_dir=""
-  case "$cli_base" in
-    code)         ext_dir="$HOME/.vscode/extensions" ;;
-    cursor)       ext_dir="$HOME/.cursor/extensions" ;;
-    code-insiders) ext_dir="$HOME/.vscode-insiders/extensions" ;;
-    windsurf)     ext_dir="$HOME/.windsurf/extensions" ;;
-    *)            ext_dir="" ;;
+  case "$resolved" in
+    */Cursor.app/*)             ext_dir="$HOME/.cursor/extensions" ;;
+    */Windsurf.app/*)           ext_dir="$HOME/.windsurf/extensions" ;;
+    */Trae.app/*)               ext_dir="$HOME/.trae/extensions" ;;
+    */VSCodium.app/*)           ext_dir="$HOME/.vscode-oss/extensions" ;;
+    */Visual\ Studio\ Code\ -\ Insiders.app/*) ext_dir="$HOME/.vscode-insiders/extensions" ;;
+    */Visual\ Studio\ Code.app/*) ext_dir="$HOME/.vscode/extensions" ;;
+    *code-insiders*)            ext_dir="$HOME/.vscode-insiders/extensions" ;;
+    *cursor*)                   ext_dir="$HOME/.cursor/extensions" ;;
+    *windsurf*)                 ext_dir="$HOME/.windsurf/extensions" ;;
+    */code|*/code)              ext_dir="$HOME/.vscode/extensions" ;;
+    *)                          ext_dir="" ;;
   esac
   [[ -z "$ext_dir" ]] && return 0
   [[ -d "$ext_dir" ]] || return 0
