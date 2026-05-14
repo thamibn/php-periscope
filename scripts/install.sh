@@ -802,20 +802,32 @@ fi
 step "done"
 cat <<EOF
 
-  Next steps:
-    1. Start the daemon:             periscope-daemon
-    2. Install the Laravel adapter:  composer require thamibn/laravel-periscope
-    3. Open http://localhost:9999    in your browser
-    4. Hit any route in your Laravel app — the trace appears in the UI.
+  Next steps — pick the path that matches what you want to do:
 
-  IDE setup:
-    - PhpStorm:  plugin auto-installed into your PhpStorm config dir.
-                 Restart PhpStorm, then Run > Edit Configurations > + > Periscope > pick a trace.
-                 Hit Shift+F9 — breakpoints + step + STEP BACK all work.
-    - VSCode:    extension auto-installed via the VSCode CLI.
-                 Restart VSCode, then hit F5 — debugger attaches to the latest .cptrace.
-    - No IDE?    The browser UI at http://localhost:9999 has the full trace viewer.
-                 Install PhpStorm or VSCode later and re-run this script to add IDE debug.
+  ─── A. Debug in your IDE (PhpStorm or VSCode) ────────────────────────────
+       Nothing to start. The IDE plugin spawns periscope-daemon per debug
+       session over stdio. Just:
+
+         1. Install the Laravel adapter:  composer require thamibn/laravel-periscope
+         2. Open the project in your IDE, set a breakpoint, hit Debug (Shift+F9):
+            - PhpStorm:  Run > Edit Configurations > + > Periscope > OK,
+                         then pick "Periscope" in the run-config dropdown.
+            - VSCode:    hit F5 — debugger attaches to the latest .cptrace.
+         3. Visit any route in your Laravel app — the IDE pauses at the breakpoint.
+            Step / step-into / STEP BACK all work.
+
+  ─── B. Browser UI + AI/MCP access ────────────────────────────────────────
+       This is the only path that needs the daemon running as a long-lived
+       server. Run it in a terminal (or via your supervisor of choice):
+
+         1. Start the daemon:             periscope-daemon
+         2. Install the Laravel adapter:  composer require thamibn/laravel-periscope
+         3. Open http://localhost:9999    in your browser
+         4. Hit any route in your Laravel app — the trace appears in the UI.
+
+  You can do both at the same time — the daemon serves IDE sessions and the
+  browser/MCP from the same binary; the IDE flow just doesn't need the
+  long-lived server.
 
   Updating later:
     A. Manual — re-run this same one-liner whenever you want the newest version:
