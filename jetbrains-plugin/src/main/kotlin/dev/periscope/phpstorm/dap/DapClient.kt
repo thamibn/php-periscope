@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import java.io.BufferedReader
 import java.io.IOException
@@ -91,7 +92,7 @@ class DapClient(
             throw DapException(command, resp.message ?: "request failed")
         }
         val body = resp.body ?: throw DapException(command, "empty body")
-        return JSON.decodeFromJsonElement(JSON.serializersModule.serializer(), body) as R
+        return JSON.decodeFromJsonElement<R>(body)
     }
 
     suspend fun sendRequestRaw(command: String, arguments: kotlinx.serialization.json.JsonElement?): DapResponse {

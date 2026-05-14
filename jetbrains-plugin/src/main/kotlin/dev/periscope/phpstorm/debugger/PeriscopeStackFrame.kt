@@ -33,7 +33,7 @@ class PeriscopeStackFrame(
 
     override fun getSourcePosition(): XSourcePosition? = sourcePos
 
-    override fun customizePresentation(component: com.intellij.ui.ColoredTextComponent) {
+    override fun customizePresentation(component: com.intellij.ui.ColoredTextContainer) {
         component.append(
             frame.name,
             com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES,

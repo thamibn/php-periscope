@@ -2,12 +2,11 @@ package dev.periscope.phpstorm.debugger
 
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.xdebugger.breakpoints.XBreakpointHandler
+import com.intellij.xdebugger.breakpoints.XBreakpointType
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
-import com.intellij.xdebugger.breakpoints.XLineBreakpointType
 import dev.periscope.phpstorm.dap.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonNull
 
 /**
  * Catches breakpoint registration/removal in PhpStorm's gutter and forwards
@@ -15,14 +14,20 @@ import kotlinx.serialization.json.JsonNull
  *
  * DAP `setBreakpoints` is per-file (the daemon stores the full set per source),
  * so we group breakpoints by file before sending.
+ *
+ * The constructor takes a raw `Class<*>` and casts it to the [XBreakpointType]
+ * shape `XBreakpointHandler` expects. The variance dance is awkward in Kotlin
+ * because `XLineBreakpointType<P>` extends `XBreakpointType<XLineBreakpoint<P>, P>`
+ * but Kotlin won't infer the cast through nested wildcards. Raw cast + suppress
+ * is the cleanest path.
  */
+@Suppress("UNCHECKED_CAST")
 class PeriscopeBreakpointHandler(
-    breakpointType: Class<out XLineBreakpointType<*>>,
+    breakpointTypeClass: Class<*>,
     private val dap: DapClient,
     private val scope: CoroutineScope,
 ) : XBreakpointHandler<XLineBreakpoint<*>>(
-    @Suppress("UNCHECKED_CAST")
-    breakpointType as Class<out XLineBreakpointType<XLineBreakpoint<*>>>
+    breakpointTypeClass as Class<out XBreakpointType<XLineBreakpoint<*>, *>>
 ) {
     private val logger = thisLogger()
     private val byFile = mutableMapOf<String, MutableSet<XLineBreakpoint<*>>>()

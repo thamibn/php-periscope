@@ -29,4 +29,22 @@
         <programRunner
             implementation="dev.periscope.phpstorm.runconfig.PeriscopeDebuggerRunner"/>
     </extensions>
+
+    <actions>
+        <action id="periscope.StepBack"
+                class="dev.periscope.phpstorm.action.StepBackAction"
+                text="Step Back"
+                description="Move the trace cursor one step backward (periscope time-travel)"
+                icon="AllIcons.Actions.Back">
+            <add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt shift F7"/>
+        </action>
+        <action id="periscope.ReverseContinue"
+                class="dev.periscope.phpstorm.action.ReverseContinueAction"
+                text="Continue Backward"
+                description="Continue replay in reverse until the previous breakpoint (periscope time-travel)"
+                icon="AllIcons.Actions.Rewind">
+            <add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

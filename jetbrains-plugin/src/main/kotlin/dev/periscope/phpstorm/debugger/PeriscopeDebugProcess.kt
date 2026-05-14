@@ -1,6 +1,5 @@
 package dev.periscope.phpstorm.debugger
 
-import com.intellij.execution.ui.ConsoleView
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.xdebugger.XDebugProcess
@@ -11,9 +10,8 @@ import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import com.intellij.xdebugger.frame.XSuspendContext
 import dev.periscope.phpstorm.dap.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collect
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 
 /**
@@ -48,7 +46,7 @@ class PeriscopeDebugProcess(
     )
 
     private val editors = PeriscopeEditorsProvider()
-    private val breakpointHandler = PeriscopeBreakpointHandler(breakpointType, dap, scope)
+    private val breakpointHandler = PeriscopeBreakpointHandler(breakpointType as Class<*>, dap, scope)
 
     @Volatile private var threadId: Int = 1
 
@@ -154,9 +152,22 @@ class PeriscopeDebugProcess(
         scope.launch { dap.sendRequestRaw("stepOut", DapClient.JSON.encodeToJsonElement(StepArgs(threadId))) }
     }
 
-    /** Time-travel: the button LSP4IJ doesn't wire up. */
-    override fun startStepBack() {
+    /**
+     * Time-travel: the request LSP4IJ doesn't wire up.
+     *
+     * `XDebugProcess` doesn't expose a `startStepBack` override (IntelliJ
+     * Platform doesn't model reverse stepping as a first-class debug-process
+     * operation). We expose a public method here and invoke it from a custom
+     * AnAction registered in plugin.xml — that gets us the Step Back toolbar
+     * button + keyboard shortcut.
+     */
+    fun performStepBack() {
         scope.launch { dap.sendRequestRaw("stepBack", DapClient.JSON.encodeToJsonElement(StepArgs(threadId))) }
+    }
+
+    /** Pair with [performStepBack] for `Continue Backward`. */
+    fun performReverseContinue() {
+        scope.launch { dap.sendRequestRaw("reverseContinue", DapClient.JSON.encodeToJsonElement(ContinueArguments(threadId))) }
     }
 
     override fun stop() {
@@ -177,9 +188,8 @@ class PeriscopeDebugProcess(
 
     override fun getEditorsProvider(): XDebuggerEditorsProvider = editors
 
-    @Suppress("UNCHECKED_CAST")
     override fun getBreakpointHandlers(): Array<XBreakpointHandler<*>> =
-        arrayOf(breakpointHandler) as Array<XBreakpointHandler<*>>
+        arrayOf<XBreakpointHandler<*>>(breakpointHandler)
 
     /** PhpStorm asks this to decide whether the Step Back button is enabled. */
     override fun checkCanInitBreakpoints(): Boolean = true
