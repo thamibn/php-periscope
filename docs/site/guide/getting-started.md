@@ -87,27 +87,58 @@ This is **idempotent**: if either key is already present (set to anything, inclu
 
 Visit any route in your app — the first request writes a `.cptrace` file to `/tmp/periscope/`.
 
-### Toolbar chip
+::: tip Trace recording is independent
+These two flags only control **how you access** traces. Trace recording itself is always on (controlled by the C extension's `periscope.enabled` ini knob, default `1`) — turning the toolbar or in-app UI off doesn't disable observability. You can still open `http://localhost:9999`, use the IDE plugins, or query traces via the MCP server with both flags set to false.
+:::
 
-The auto-installed `PERISCOPE_TOOLBAR_ENABLED=true` injects a Clockwork-style request chip into HTML responses — duration, query count, status. Click → opens the trace.
+### `PERISCOPE_TOOLBAR_ENABLED`
 
-To disable on a given environment:
+**When `true`** (auto-installed default): a `InjectToolbar` middleware is pushed onto Laravel's `web` middleware group. After your controller renders an HTML response, the middleware injects a small floating chip just before `</body>`. The chip shows: request duration, SQL query count, peak memory, HTTP status. Clicking it opens the trace in the in-app UI (`/periscope`) or — if `PERISCOPE_UI_ENABLED=false` — at `http://localhost:9999`.
+
+What this affects:
+- **HTML responses only.** The middleware checks `Content-Type` and skips JSON, XML, plain text, downloads, and anything without a `</body>` tag (so partial responses, htmx fragments, and Inertia JSON aren't touched).
+- **Response body size**: ~1 KB extra HTML/CSS/JS per page.
+- **Per-request cost**: a single regex on the response body. Sub-millisecond on a typical page; profile yourself if your responses are very large.
+- **Production note**: don't leave on in prod for end users — set it `false` in production envs, leave it `true` in `local` / `staging`.
+
+**When `false`**: middleware never registers, zero per-request work, no chip in the browser. Trace recording continues unchanged. Use this in prod or when the chip clashes with your own page footer.
 
 ```bash
-# .env
+# .env — production override
 PERISCOPE_TOOLBAR_ENABLED=false
 ```
 
-### In-app UI mount
+### `PERISCOPE_UI_ENABLED`
 
-The auto-installed `PERISCOPE_UI_ENABLED=true` serves the periscope UI from inside your Laravel app at `/periscope`. So `app.test/periscope` shows the same UI the daemon hosts at `localhost:9999` — convenient when you're working inside a single browser tab.
+**When `true`** (auto-installed default): a route group is registered at `/periscope` (path is configurable via `PERISCOPE_UI_PATH`). Hits to `app.test/periscope` serve the same SolidJS UI the standalone `periscope-daemon` hosts at `http://localhost:9999` — same trace list, same time-travel scrubber, same panels. Convenient when you'd rather not juggle two browser tabs.
 
-To disable:
+What this affects:
+- **One route group** added to your Laravel router (`/periscope`, `/periscope/{trace}`, `/periscope/assets/*`).
+- The route group uses the `web` middleware by default — i.e. anyone with web-session access can view it. Override via `PERISCOPE_UI_MIDDLEWARE=web,auth` (or stricter) for shared dev environments.
+- Talks to the daemon over WebSocket — `periscope-daemon` still needs to be running on the host (`http://127.0.0.1:9999` by default; override with `PERISCOPE_UI_DAEMON_BASE`).
+- Static assets are served by Laravel, not the daemon.
+
+**When `false`**: no `/periscope` route added. Open the daemon's UI directly at `http://localhost:9999` instead. Use this when:
+- You don't want a debugger UI accessible inside your Laravel app's domain (defense in depth on shared dev / staging boxes).
+- The `/periscope` path conflicts with one of your own app routes.
+- You only ever use the IDE plugins or AI agents (MCP) to read traces.
 
 ```bash
-# .env
+# .env — disable in-app mount, use the daemon's port instead
 PERISCOPE_UI_ENABLED=false
 ```
+
+### What about production?
+
+Recommended in `.env.production`:
+
+```bash
+PERISCOPE_TOOLBAR_ENABLED=false   # don't ship a debugger chip to end users
+PERISCOPE_UI_ENABLED=false        # don't expose the trace UI on your public domain
+PERISCOPE_ENABLED=false           # if you want zero overhead, fully disable the adapter
+```
+
+v1 ships local-dev only; production sampling lands in v2.
 
 ## Open the UI
 

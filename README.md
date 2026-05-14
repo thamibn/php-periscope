@@ -4,6 +4,9 @@
 
 > See into your Laravel request.
 
+[![GitHub release](https://img.shields.io/github/v/release/thamibn/php-periscope?label=release&color=blue)](https://github.com/thamibn/php-periscope/releases/latest)
+[![Packagist version](https://img.shields.io/packagist/v/thamibn/laravel-periscope?label=packagist&color=blueviolet)](https://packagist.org/packages/thamibn/laravel-periscope)
+[![License](https://img.shields.io/github/license/thamibn/php-periscope?color=green)](LICENSE)
 [![CI](https://github.com/thamibn/php-periscope/actions/workflows/ci.yml/badge.svg)](https://github.com/thamibn/php-periscope/actions/workflows/ci.yml)
 [![Docs](https://github.com/thamibn/php-periscope/actions/workflows/docs.yml/badge.svg)](https://github.com/thamibn/php-periscope/actions/workflows/docs.yml)
 [![Links](https://github.com/thamibn/php-periscope/actions/workflows/link-check.yml/badge.svg)](https://github.com/thamibn/php-periscope/actions/workflows/link-check.yml)
