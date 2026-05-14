@@ -37,7 +37,7 @@ export default defineConfig({
       { text: "FAQ", link: "/guide/faq" },
       { text: "Roadmap", link: "/guide/roadmap" },
       {
-        text: "v0.1.0-alpha",
+        text: "v0.1.1",
         items: [
           { text: "Changelog", link: "https://github.com/thamibn/php-periscope/releases" },
           { text: "GitHub", link: "https://github.com/thamibn/php-periscope" },
