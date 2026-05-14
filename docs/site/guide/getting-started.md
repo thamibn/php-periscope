@@ -1,5 +1,9 @@
 # Getting started
 
+::: warning Alpha · Under active development
+php-periscope is pre-release. Things will move, break, and change shape — including this install flow. If you're trying it out, please file issues on [GitHub](https://github.com/thamibn/php-periscope/issues). **Don't use this in production yet.**
+:::
+
 In about three minutes you'll have the extension loaded, the daemon running, and your first Laravel request showing up in the UI.
 
 ## Prerequisites

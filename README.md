@@ -1,5 +1,7 @@
 # php-periscope
 
+> 🚧 **Under active development — alpha.** This is a pre-release greenfield project. Things will move, break, and change shape. If you find this and want to try it, expect rough edges and please file issues. Production use is **not** recommended yet.
+
 > See into your Laravel request.
 
 [![CI](https://github.com/thamibn/php-periscope/actions/workflows/ci.yml/badge.svg)](https://github.com/thamibn/php-periscope/actions/workflows/ci.yml)

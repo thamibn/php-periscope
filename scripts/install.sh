@@ -66,15 +66,53 @@ run() {
   fi
 }
 
+# Log file for noisy compile output. Stays around after the run so users can read failures.
+LOG_FILE="${TMPDIR:-/tmp}/periscope-install-$$.log"
+: > "$LOG_FILE"
+
+# Run a noisy command behind a single progress line. Use for things users can't act on
+# (compilers, ./configure, make, cargo build). In -v mode, output is streamed live.
+# Args: "label", then the command + args.
+compile_step() {
+  local label="$1" ; shift
+  if [[ $DRY_RUN -eq 1 ]]; then
+    printf "  %s ... \033[2m(dry-run)\033[0m %s\n" "$label" "$*"
+    return 0
+  fi
+  if [[ $VERBOSE -eq 1 ]]; then
+    printf "  %s ...\n" "$label"
+    "$@"
+    return $?
+  fi
+  printf "  %s ..." "$label"
+  if "$@" >>"$LOG_FILE" 2>&1; then
+    printf " \033[32m✓\033[0m\n"
+    return 0
+  fi
+  local rc=$?
+  printf " \033[31m✗\033[0m\n\n"
+  printf "  build failed (exit %d). Last 20 lines from %s:\n\n" "$rc" "$LOG_FILE" >&2
+  tail -20 "$LOG_FILE" | sed 's/^/    /' >&2
+  printf "\n  Full log: %s\n" "$LOG_FILE" >&2
+  exit "$rc"
+}
+
 need() { printf "  \033[36m?\033[0m %s\n" "$1"; }
 
 # Locate the repo root regardless of where the user invokes from.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Tracks soft-missing requirements collected during preconditions. If any blockers
-# remain after the prompt-and-install pass, the script prints them all and exits.
-BLOCKERS=()
-block() { BLOCKERS+=("$1"); }
+# Tracks missing requirements during the detection pass. Each item has a display
+# name, the command we'd run to install it, and a flag for whether the user must
+# do it themselves (PHP) vs whether we can auto-install (Rust, Cap'n Proto).
+MISSING_NAMES=()
+MISSING_CMDS=()
+MISSING_USER_ONLY=()  # 1 = user must install themselves; 0 = we can auto-install
+record_missing() {
+  MISSING_NAMES+=("$1")
+  MISSING_CMDS+=("$2")
+  MISSING_USER_ONLY+=("${3:-0}")
+}
 
 # Prompt for a Y/n answer on /dev/tty. Args: question, default ("Y"|"N").
 # Returns 0 for yes, 1 for no. Non-interactive returns the default's exit code.
@@ -103,69 +141,33 @@ ask_path() {
   printf '%s' "${user_path/#\~/$HOME}"
 }
 
-# Ensure Rust toolchain is available. Auto-install via rustup with consent.
-ensure_cargo() {
+# Detect Rust toolchain. Records as auto-installable if missing.
+detect_cargo() {
   if command -v cargo >/dev/null 2>&1; then
     ok "cargo: $(command -v cargo)"
     return 0
   fi
-  local cmd="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable"
-  need "rust toolchain not found (needed to build the daemon)"
-  printf "      command: %s\n" "$cmd" >&2
-  if ask_yes_no "run this now? (Y = install for you, N = run it yourself and re-run this script)" Y; then
-    if [[ $DRY_RUN -eq 1 ]]; then
-      printf "  \033[2m(dry-run)\033[0m curl ... rustup.rs | sh -s -- -y --profile minimal\n"
-      ok "cargo: (dry-run; would be installed)"
-      return 0
-    fi
-    if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; then
-      # shellcheck disable=SC1091
-      [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
-      export PATH="$HOME/.cargo/bin:$PATH"
-    fi
-    if command -v cargo >/dev/null 2>&1; then
-      ok "cargo: $(command -v cargo) (just installed)"
-      return 0
-    fi
-    block "rustup install failed — install Rust manually (https://rustup.rs) and re-run"
-    return 1
-  fi
-  block "rust toolchain (skipped install)"
-  return 1
+  warn "cargo: not found (needed to build the daemon)"
+  record_missing "Rust toolchain" "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable"
 }
 
-# Ensure Cap'n Proto C++ library is available. Auto-install via brew/apt with consent.
-ensure_capnp() {
+# Detect Cap'n Proto. Records as auto-installable if missing.
+detect_capnp() {
   if command -v capnp >/dev/null 2>&1; then
     ok "capnp: $(command -v capnp)"
     return 0
   fi
-  need "Cap'n Proto not found (needed to build the trace serializer)"
-  local installer="" install_cmd=""
+  warn "capnp: not found (needed to build the trace serializer)"
+  local install_cmd=""
   case "$(uname -s)" in
-    Darwin) command -v brew >/dev/null 2>&1 && { installer="brew" ; install_cmd="brew install capnp" ; } ;;
-    Linux)  command -v apt-get >/dev/null 2>&1 && { installer="apt" ; install_cmd="sudo apt-get install -y libcapnp-dev capnproto" ; } ;;
+    Darwin) command -v brew >/dev/null 2>&1 && install_cmd="brew install capnp" ;;
+    Linux)  command -v apt-get >/dev/null 2>&1 && install_cmd="sudo apt-get install -y libcapnp-dev capnproto" ;;
   esac
-  if [[ -z "$installer" ]]; then
-    block "Cap'n Proto (no supported package manager found — install capnproto manually)"
-    return 1
+  if [[ -z "$install_cmd" ]]; then
+    record_missing "Cap'n Proto" "# no supported package manager found — install capnproto manually from https://capnproto.org" 1
+  else
+    record_missing "Cap'n Proto" "$install_cmd"
   fi
-  printf "      command: %s\n" "$install_cmd" >&2
-  if ask_yes_no "run this now? (Y = install for you, N = run it yourself and re-run this script)" Y; then
-    if [[ $DRY_RUN -eq 1 ]]; then
-      printf "  \033[2m(dry-run)\033[0m %s\n" "$install_cmd"
-      ok "capnp: (dry-run; would be installed)"
-      return 0
-    fi
-    if eval "$install_cmd" && command -v capnp >/dev/null 2>&1; then
-      ok "capnp: $(command -v capnp) (just installed)"
-      return 0
-    fi
-    block "Cap'n Proto install failed — try manually: $install_cmd"
-    return 1
-  fi
-  block "Cap'n Proto (skipped install)"
-  return 1
 }
 
 # ---------- preconditions ----------
@@ -234,14 +236,16 @@ if [[ -z "$PHP_BIN" || ! -x "$PHP_BIN" ]]; then
   PHP_BIN="$(ask_path 'Or type a path to a PHP 8.3/8.4 binary (Enter to abort)')"
 fi
 if [[ -z "$PHP_BIN" || ! -x "$PHP_BIN" ]]; then
-  block "PHP 8.3 or 8.4 (required)"
+  warn "PHP: not found"
+  record_missing "PHP 8.3 or 8.4" "# install via Herd (https://herd.laravel.com) or 'brew install php@8.3', then re-run this script" 1
 fi
 
 if [[ -n "$PHP_BIN" && -x "$PHP_BIN" ]]; then
   php_version="$("$PHP_BIN" -r 'echo PHP_VERSION;')"
   case "$php_version" in
     8.3.*|8.4.*) ok "PHP: $php_version ($PHP_BIN)" ;;
-    *) ok "PHP: $php_version ($PHP_BIN)" ; block "PHP $php_version is too old — v1 requires 8.3 or 8.4" ;;
+    *) warn "PHP: $php_version ($PHP_BIN) is too old"
+       record_missing "PHP 8.3 or 8.4 (got $php_version)" "# install via Herd (https://herd.laravel.com) or 'brew install php@8.3', then re-run this script" 1 ;;
   esac
 
   # pick php-config alongside php. brew/macOS keep them paired.
@@ -253,18 +257,19 @@ if [[ -n "$PHP_BIN" && -x "$PHP_BIN" ]]; then
   if [[ -x "$PHP_CONFIG" ]]; then
     ok "php-config: $PHP_CONFIG"
   else
-    block "php-config not found (looked for: $PHP_CONFIG) — install PHP dev headers (brew: included; apt: php-dev)"
+    warn "php-config: not found at $PHP_CONFIG"
+    record_missing "PHP dev headers (php-config)" "# install PHP dev headers — brew: included with 'php' formula; apt: 'sudo apt-get install -y php-dev'" 1
   fi
 
   EXT_DIR="$("$PHP_BIN" -r 'echo ini_get("extension_dir");')"
   SCAN_DIR="$("$PHP_BIN" -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')"
-  [[ -n "$EXT_DIR"  ]] && ok "extension_dir: $EXT_DIR"  || block "could not detect PHP extension_dir"
-  [[ -n "$SCAN_DIR" ]] && ok "scan dir:      $SCAN_DIR" || block "could not detect PHP conf.d scan dir"
+  [[ -n "$EXT_DIR"  ]] && ok "extension_dir: $EXT_DIR"  || record_missing "PHP extension_dir (unknown — check your PHP build)" "# php -r 'echo ini_get(\"extension_dir\");' returns empty" 1
+  [[ -n "$SCAN_DIR" ]] && ok "scan dir:      $SCAN_DIR" || record_missing "PHP conf.d scan dir (unknown — check your PHP build)" "# php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;' returns empty" 1
 fi
 
-# Rust + Cap'n Proto via auto-install helpers (Y/n prompts; record blocker on decline).
-ensure_cargo
-ensure_capnp
+# Rust + Cap'n Proto — detection only. Auto-install (or not) decided after summary.
+detect_cargo
+detect_capnp
 
 # Detect IDE installs (informational — no install attempted in this phase).
 # JetBrains config dirs:
@@ -307,14 +312,44 @@ else
   warn "VSCode/Cursor: not detected (extension will be skipped — browser UI still works)"
 fi
 
-# All-blockers gate. Better to show everything missing at once than fail-fast.
-if [[ ${#BLOCKERS[@]} -gt 0 ]]; then
+# ---------- summary + decide ----------
+
+if [[ ${#MISSING_NAMES[@]} -gt 0 ]]; then
   printf "\n"
-  printf "  \033[31m✗\033[0m Cannot continue — missing required tools:\n" >&2
-  for b in "${BLOCKERS[@]}"; do
-    printf "      - %s\n" "$b" >&2
+  step "missing requirements"
+  any_user_only=0
+  for i in "${!MISSING_NAMES[@]}"; do
+    printf "  \033[31m✗\033[0m %s\n" "${MISSING_NAMES[i]}"
+    printf "      %s\n" "${MISSING_CMDS[i]}"
+    [[ "${MISSING_USER_ONLY[i]}" = "1" ]] && any_user_only=1
   done
-  exit 1
+
+  printf "\n"
+  if [[ $any_user_only -eq 1 ]]; then
+    # User-only items (PHP, php-dev headers) — we can't auto-install. Exit cleanly.
+    printf "  Please install the items above and re-run this script.\n"
+    exit 1
+  fi
+
+  if ! ask_yes_no "Continue and let this script install the items above?" Y; then
+    printf "\n  Run the commands above yourself, then re-run this script.\n"
+    exit 0
+  fi
+
+  step "installing missing requirements"
+  for i in "${!MISSING_NAMES[@]}"; do
+    printf "  installing %s ...\n" "${MISSING_NAMES[i]}"
+    if [[ $DRY_RUN -eq 1 ]]; then
+      printf "  \033[2m(dry-run)\033[0m %s\n" "${MISSING_CMDS[i]}"
+    else
+      eval "${MISSING_CMDS[i]}" || fail "install failed for: ${MISSING_NAMES[i]}"
+    fi
+  done
+
+  # rustup drops cargo in ~/.cargo/bin — pick it up for the rest of this script.
+  [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+  export PATH="$HOME/.cargo/bin:$PATH"
+  ok "all missing requirements installed"
 fi
 
 # choose install prefix
@@ -336,14 +371,13 @@ step "build C extension"
 run cd "$ROOT/extension"
 # phpize fails noisily on dirty trees; clean first.
 if [[ -f Makefile ]]; then
-  run make distclean >/dev/null 2>&1 || true
+  make distclean >/dev/null 2>&1 || true
 fi
-run "$PHP_CONFIG" >/dev/null
 PHPIZE="$(dirname "$PHP_CONFIG")/phpize"
 [[ -x "$PHPIZE" ]] || fail "phpize not found next to php-config ($PHPIZE)."
-run "$PHPIZE"
-run ./configure --with-php-config="$PHP_CONFIG"
-run make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+compile_step "phpize" "$PHPIZE"
+compile_step "configure" ./configure --with-php-config="$PHP_CONFIG"
+compile_step "make (-j$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2))" make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 SO="$ROOT/extension/modules/periscope.so"
 [[ $DRY_RUN -eq 1 ]] || [[ -f "$SO" ]] || fail "expected $SO to exist after build."
 ok "built: $SO"
@@ -423,7 +457,7 @@ ok "wrote: $INI_FILE"
 
 step "build Rust daemon"
 run cd "$ROOT/daemon"
-run cargo build --release
+compile_step "cargo build --release (~30s first build)" cargo build --release
 DAEMON_BIN="$ROOT/daemon/target/release/periscope-daemon"
 DUMP_BIN="$ROOT/daemon/target/release/periscope-dump"
 EXPORT_BIN="$ROOT/daemon/target/release/periscope-export"
