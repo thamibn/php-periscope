@@ -1,5 +1,21 @@
 import { defineConfig } from "vitepress";
 import { tabsMarkdownPlugin } from "vitepress-plugin-tabs";
+import { execSync } from "node:child_process";
+
+// Resolve the latest version automatically:
+//   1. DOCS_VERSION env var (e.g. set by a release workflow) wins.
+//   2. Otherwise read `git describe --tags --abbrev=0`.
+//   3. Fall back to "main" so previews of an unreleased branch still render.
+// Cloudflare Pages clones shallow by default — see scripts/cf-build.sh
+// which runs `git fetch --tags --unshallow` before `vitepress build`.
+const docsVersion = (() => {
+  if (process.env.DOCS_VERSION) return process.env.DOCS_VERSION;
+  try {
+    return execSync("git describe --tags --abbrev=0", { encoding: "utf8" }).trim();
+  } catch {
+    return "main";
+  }
+})();
 
 export default defineConfig({
   markdown: {
@@ -37,7 +53,7 @@ export default defineConfig({
       { text: "FAQ", link: "/guide/faq" },
       { text: "Roadmap", link: "/guide/roadmap" },
       {
-        text: "v0.1.1",
+        text: docsVersion,
         items: [
           { text: "Changelog", link: "https://github.com/thamibn/php-periscope/releases" },
           { text: "GitHub", link: "https://github.com/thamibn/php-periscope" },
