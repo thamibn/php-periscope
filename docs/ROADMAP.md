@@ -1,55 +1,84 @@
 # Roadmap
 
-Calendar-style view of the 12-phase plan in `thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`. Calendar weeks assume part-time AI-assisted development (~10–15 hrs/week). Compress by 3× for full-time work.
+Source-of-truth roadmap. The user-facing version lives at [`docs/site/guide/roadmap.md`](site/guide/roadmap.md).
 
-## Milestone calendar
+## Where we are: v0.1.0-alpha
 
-| Milestone | Phase | Weeks (part-time) | Calendar (start 2026-05-11) |
-|-----------|-------|-------------------|------------------------------|
-| **M1 — Hello extension** | 1 | 1 | 2026-05-11 → 2026-05-17 |
-| **M2 — Function hooks** | 2 | 1 | 2026-05-18 → 2026-05-24 |
-| **M3 — Variable capture** | 3 | 3 | 2026-05-25 → 2026-06-14 |
-| **M4 — Trace format** | 4 | 1 | 2026-06-15 → 2026-06-21 |
-| **M5 — Laravel adapter** | 5 (Track A) | 2 | 2026-06-22 → 2026-07-05 |
-| **M6 — DAP daemon** | 6 (Track B) | 2 | 2026-06-22 → 2026-07-05 *(parallel)* |
-| **M7 — Replay engine** | 7 | 2 | 2026-07-06 → 2026-07-19 |
-| **M8 — Time-travel wired** | 8 | 1 | 2026-07-20 → 2026-07-26 |
-| **M9a — UI mockup** | 9a | 0.5 | 2026-05-25 → 2026-05-28 *(in parallel with M3)* |
-| **M9b — UI real** | 9b (Track C) | 3 | 2026-07-27 → 2026-08-16 |
-| **M10 — Real-world tests** | 10 | 2 | 2026-08-17 → 2026-08-30 |
-| **M11 — Distribution** | 11 | 2 | 2026-08-31 → 2026-09-13 |
-| **M12 — Beta launch** | 12 | 1 | 2026-09-14 → 2026-09-20 |
+All twelve plan phases in [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`](../thoughts/shared/plans/2026-05-08-php-periscope-mvp.md) have shipped. Git log is authoritative; the shipped surface includes:
 
-**MVP target ship date: 2026-09-20** (~19 weeks part-time from 2026-05-11). Slip budget: +4 weeks for the Phase 3 cliff and Phase 10 bug-fix cycle. Realistic ship window: **late September to late October 2026**.
+| Phase | What shipped |
+|-------|--------------|
+| 1     | C extension scaffold, `phpize` build |
+| 2     | Zend Observer API hooks (function entry/exit) |
+| 3     | Variable capture — primitives, strings, arrays, objects, enums, closures, circular refs, depth caps |
+| 4     | Cap'n Proto trace format + Rust reader, `--json` mode for AI ingestion, trace retention |
+| 5a–5d | C userland API + Laravel adapter — 18 hooks (queries, logs, cache, jobs, batches, events, mail, notifications, redis, HTTP client, exceptions, models, views, gates, commands, schedules, request lifecycle, `dd()`/`dump()`), N+1 detector, slow-query analyser, AI advisor, code-snippet capture per event, per-request mode header |
+| 6     | Rust daemon — DAP stdio server, HTTP API, ext-link UDS, WebSocket fanout |
+| 7     | Replay engine — `TraceIndex` + `ReplayCursor` + state reconstruction at any microsecond |
+| 8     | End-of-request ping over UDS; live pause-on-breakpoint; bidirectional ext-link |
+| 9     | SolidJS browser UI — 18 panels, dark theme, code-snippet source view, configurable mount, Clockwork-parity toolbar + storage UI |
+| 9b    | Event grouping + Datadog-style JSON-path payload filtering |
+| 11a–e | MCP server (`laravel/mcp`), install/uninstall scripts, PECL package.xml, VSCode extension scaffold, Homebrew formula |
+| 12a–e | CONTRIBUTING + CoC, GitHub issue / PR templates, VitePress docs site, CI deploy + link checker, README rewrite |
 
-## Risk-adjusted view
+## What's next
 
-If Phase 3 (variable capture) goes well: ship on time.
-If Phase 3 takes 2× expected: ship late October.
-If Phase 3 reveals a fundamental Zend issue: re-evaluate. May pivot to "function-call-only debugger with no variable inspection" as a stripped-down v0.5 ship.
+### v0.2.0 — Real-world hardening
 
-## Post-MVP (v2 priorities, in rough order)
+- **Phase 10** — Laravel skeleton CI harness running the framework's own test suite with the extension loaded; performance regression gate (< 3× overhead on a typical Laravel home route)
+- Bug-fix cycle from internal dogfooding + early beta reports
+- VSCode Marketplace publish (`periscopephp.php-periscope`)
+- Cloudflare Pages deploy live on every push to `main`
+
+### v0.3.0 — Public beta
+
+- PECL public release (`pecl install periscope`)
+- Homebrew tap split out into `periscopephp/homebrew-php-periscope`
+- Discord + GitHub Discussions board for beta feedback
+- Demo GIF + walkthrough video
+
+### v1.0.0 — Stable
+
+- All open beta-tester crash reports triaged + fixed
+- Performance: documented overhead claims hold under `make test-real-world`
+- Docs: link checker green on every push
+
+## v1.1 backlog (quick wins after v1.0)
+
+1. **PHP 8.1 + 8.2 support** — additive zval-handling work
+2. **Laravel 11.x support** — pending `laravel/mcp` widening the `illuminate/json-schema` dep or shipping a vendored fallback
+3. **Self-hosted trace sharing** — `periscope-share` binary + `Mcp::web()` registration
+4. **Sampling profiler** — opcode-level zoom, opt-in (1-week sprint)
+5. **Safe-mode dry-run** — `PERISCOPE_DRYRUN=true` wraps requests in a DB transaction rolled back at RSHUTDOWN; stubs Mail / Queue / HTTP
+6. **VSCode extension polish** — gutter affordances, run/debug configurations
+
+## v2 priorities
 
 1. **Production-safe debugging** — sampling, snapshot breakpoints. The killer enterprise feature.
-2. **OpenTelemetry export** — debug events as spans across services.
-3. **AI assist panel** — "explain this frame", "why is `$x` null?" with full request context as a prompt.
-4. **PhpStorm polish** — first-class JetBrains plugin.
-5. **Async runtime support** — Fibers, Swoole, Frankenphp, Octane.
-6. **Variable mutation tracking** — assignment-level snapshots.
-7. **Symfony N+1 detection** parity with Laravel.
-8. **Cross-process tracing** — follow a request from web → queue worker → web again.
+2. **OpenTelemetry export** — debug events as spans across services
+3. **Symfony adapter package** — separate Composer package
+4. **WordPress adapter package**
+5. **Async runtime support** — Fibers, Swoole, FrankenPHP, RoadRunner, Octane
+6. **PhpStorm polish** — first-class JetBrains plugin
+7. **Variable mutation tracking** — assignment-level snapshots
+8. **Cross-process tracing** — follow a request from web → queue worker → web again
 
-## Cadence
+## Permanently out of scope
 
-- Weekly: Thami's working session (3–6 hrs, evenings/weekend)
-- Bi-weekly: progress review + scope re-check against this roadmap
-- Monthly: external sanity check (show progress to a PHP friend, gather feedback)
+- Windows native (use WSL2)
+- SaaS for trace hosting (export `.html` files instead)
+- Xdebug integration / DBGp shim
+
+## Decision cadence
+
+- Items move between buckets based on beta-tester demand, code budget, and the [four product pillars](POSITIONING.md): fast, useful, easy to set up, easy to use.
+- [Feature requests](https://github.com/thamibn/php-periscope/issues/new?template=feature_request.md) self-classify into v1 / v1.1 / v2; we triage.
 
 ## Pause points
 
-After the following phases, **stop and confirm with Thami before continuing**:
+Historically — phases that required a confirm-before-continue:
 
-- End of Phase 1 (build toolchain works)
-- End of Phase 3 (variable capture is the highest-risk phase)
-- End of Phase 9a (UI mockup — get external feedback before building real UI)
-- End of Phase 10 (real-world bugs surface — decide if we have enough quality to launch)
+- End of Phase 1 (build toolchain works) — passed
+- End of Phase 3 (variable capture, highest-risk phase) — passed
+- End of Phase 9a (UI mockup) — passed
+- End of Phase 10 (real-world bugs surface — decide if quality is launch-grade) — **upcoming, gates v0.2 → v0.3**

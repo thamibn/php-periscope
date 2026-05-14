@@ -16,7 +16,7 @@ This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). By part
 ## Project layout
 
 ```
-extension/        C extension (Zend Observer API, PHP 8.3 only in v1)
+extension/        C extension (Zend Observer API, PHP 8.3 + 8.4 in v1)
 daemon/           Rust DAP server + replay engine + WebSocket bridge
 ui/               SolidJS + Vite + Tailwind browser UI
 laravel-adapter/  Laravel 13 Composer package (hooks + MCP server + toolbar + UI mount)
@@ -97,7 +97,7 @@ composer install
 ./vendor/bin/pest    # Pest + Orchestra Testbench
 ```
 
-The adapter targets Laravel 11 / 12 / 13. v1 ships Laravel-only — do **not** add Symfony / WordPress / CodeIgniter code paths.
+The adapter targets Laravel 12 / 13. v1 ships Laravel-only — do **not** add Symfony / WordPress / CodeIgniter code paths.
 
 ### VSCode extension (`vscode-extension/`)
 

@@ -58,9 +58,10 @@ A `php-periscope.so` loaded via `php.ini`'s `extension=` directive. Built on Zen
 **Key files:**
 - `extension/periscope.c` — extension entry point + Observer registration
 - `extension/periscope_capture.c` — zval-to-Value serializer
-- `extension/periscope_trace.c` — trace file writer
+- `extension/periscope_trace.cc` — Cap'n Proto trace file writer (C++ for the capnp runtime)
 - `extension/periscope_daemon_link.c` — UDS protocol to daemon
-- `extension/periscope_userland_api.c` — `periscope_record_event()` and friends
+- `extension/periscope_filter.c` — header / cookie / param redaction
+- `extension/periscope_userland.c` — `periscope_record_event()` and the userland API surface
 
 **Why C and not Rust:** PHP extensions interact with the Zend engine through C-level pointer manipulation (zvals, refcounts, hash tables). Rust FFI would help but would not eliminate the C surface area; staying in C keeps the boundary clean.
 
@@ -92,18 +93,44 @@ A single static binary (`periscope-daemon`) speaking DAP over stdio and serving 
 
 ### 3. Laravel adapter (`laravel-adapter/`)
 
-A Composer package (`periscopephp/laravel`) auto-discovered by Laravel.
+A Composer package (`periscopephp/laravel`) auto-discovered by Laravel 12.x / 13.x.
 
 **Responsibilities:**
-- Register hooks for: `DB::listen`, `Log::*`, `Cache::*` events, `Event::listen('*')`, `Queue::before`, `Mail::send`, Redis events, HTTP client middleware
+- Register eighteen event-listener hooks (`laravel-adapter/src/Hooks/`): queries, logs, cache, jobs, batches, events, mail, notifications, redis, HTTP client, exceptions, model writes, view renders, gates, console commands, schedule events, request lifecycle, and `dd()` / `dump()` captures
 - Forward each captured event to `periscope_record_event()` (the C extension's userland-callable function)
 - Detect N+1 queries and attach warnings
+- Run a slow-query analyser and an opt-in **AI advisor** (`Periscope\Laravel\Insights\AiAdvisor`) that uses `laravel/ai` to suggest fixes
+- Inject the floating toolbar chip into HTML responses
+- Mount the SolidJS UI inside the host app at a configurable prefix (`/periscope` default)
+- Auto-register the periscope **MCP server** via `laravel/mcp` (`php artisan mcp:start periscope`) — see [§4 below](#4-ai-native-surface)
 
 **Why a Composer package and not just framework hooks in C:**
 - Laravel APIs change between major versions; PHP-side adapter shields the C extension from framework churn
 - Zero ceremony for users: `composer require` and it works
+- Auto-discovery surfaces both the service provider and the MCP server
 
-### 4. Trace format (`proto/`)
+### 4. AI-native surface
+
+The `laravel/mcp` integration ships eight tools that proxy to the daemon's HTTP API:
+
+| Tool | Returns |
+|---|---|
+| `list_traces` | Recent requests, most-recent first |
+| `get_trace` | Full trace document for one request |
+| `get_summary` | Totals + top hot frames + slow queries |
+| `get_insights` | N+1, slow queries, exceptions, error logs, AI suggestions |
+| `get_timeline` | Time-ordered frame + event timeline |
+| `get_state` | Reconstructed state at a microsecond — call stack, scope vars, prefix events |
+| `query_events` | Events by type / JSON-path filter / grouping |
+| `read_file` | A slice of project source so the AI can reason about code |
+
+Same data source as the UI. No second source of truth.
+
+### 5. VSCode extension (`vscode-extension/`)
+
+Registers a `periscope` debug type with VSCode's DAP client. On `F5` it spawns `periscope-daemon` and pipes DAP messages over stdio. Status-bar liveness chip shows when the daemon is up. Marketplace listing is pending v0.2.
+
+### 6. Trace format (`proto/`)
 
 Cap'n Proto schema describing recorded function frames and observability events.
 
@@ -114,16 +141,25 @@ Cap'n Proto schema describing recorded function frames and observability events.
 
 **Trade-off:** Cap'n Proto's C library (`capnp-c`) is less mature than Protobuf's. We accept this and pin a vendored copy. Fallback plan: 24-hour migration to Protobuf if `capnp-c` causes blocking issues.
 
-### 5. Browser UI (`ui/`)
+### 7. Browser UI (`ui/`)
 
-A SolidJS + Tailwind web app, built with Vite and Bun, served by the daemon at `localhost:9999`.
+A SolidJS + Tailwind web app, built with Vite and Bun, served by the daemon at `localhost:9999` and (when `PERISCOPE_UI_ENABLED=true`) by the Laravel adapter at `/periscope`.
 
 **Why SolidJS over Svelte:**
 - Smaller runtime (~12KB vs ~30KB)
 - Fine-grained reactivity → 60fps timeline scrubbing without virtual-DOM overhead
 - React-like JSX → contributors find it familiar
 
-**Communication:** WebSocket to the daemon. The daemon emits events; the UI renders them. No state in the UI beyond presentation.
+**Eighteen panels** render based on event presence: Overview, Source + Scope, Queries, Models, Logs, Cache, Jobs, Events, HTTP, Redis, Mail, Notifications, Exceptions, Dumps, Insights, Performance (flame graph), Request, Response. Empty panels are hidden.
+
+**Communication:** WebSocket + HTTP to the daemon. Same wire when the UI is mounted in-app — the bundle reads from `/periscope/api/*` instead of `:9999/api/*`. Standalone `.html` export reads from inlined `window.PERISCOPE_TRACE` and the daemon-only features (live mode, breakpoints) gracefully degrade.
+
+### 8. Distribution
+
+- `scripts/install.sh` — one-line install for macOS + Linux. Detects every brew PHP, builds the `.so` against each, writes `99-periscope.ini`, builds the Rust daemon, drops binaries into `/opt/homebrew/bin` or `/usr/local/bin`
+- `homebrew/Formula/php-periscope.rb` — Homebrew formula (tap-based until the public tap repo lands in v0.3)
+- `extension/package.xml` — PECL packaging (public release pending v0.3)
+- `vscode-extension/` — packaged as `.vsix` (marketplace listing pending v0.2)
 
 ## Decisions registered
 
@@ -152,10 +188,15 @@ A SolidJS + Tailwind web app, built with Vite and Bun, served by the daemon at `
 **Reason:** Smaller bundle, better fine-grained reactivity for scrubbing, JSX feels familiar.
 **Reversibility:** High. UI is a thin layer over the daemon's WebSocket protocol; could rewrite in any framework in days.
 
-### Single-PHP-version target (8.3) for v1
-**Date:** 2026-05-08
-**Reason:** Each additional PHP version multiplies the test matrix and reveals new edge cases in zval handling. Lock to 8.3 to ship; expand to 8.1/8.2/8.4 in v1.1.
+### PHP version target — 8.3 and 8.4 for v1
+**Date:** 2026-05-08 (initial), widened 2026-05-14
+**Reason:** Each additional PHP version multiplies the test matrix and reveals new edge cases in zval handling. v1 supports 8.3 + 8.4 (matches `scripts/install.sh`). 8.1 + 8.2 are deferred to v1.1.
 **Reversibility:** High. Adding versions is purely additive work.
+
+### Laravel version target — 12.x + 13.x for v1
+**Date:** 2026-05-14
+**Reason:** `laravel/mcp` 0.7 requires `illuminate/json-schema` 12.41+, which excludes Laravel 11. Rather than ship a partial Laravel-11 experience (no MCP), the v1 floor is Laravel 12. Older Laravel versions are out — they're EOL or in security-only support.
+**Reversibility:** Medium. Adding Laravel 11 needs either MCP to widen or a vendored `json-schema` polyfill.
 
 ## Why we don't do certain things
 
@@ -167,6 +208,6 @@ Async PHP runtimes break the "one trace per request, one thread" model. Each one
 
 ### Why no DBGp compatibility shim
 Some users will ask for "Xdebug-compatible mode" so PhpStorm Just Works. We don't ship this because:
-1. PhpStorm does support DAP (via plugin)
+1. PhpStorm's first-class debugger speaks DBGp, not DAP — but PhpStorm doesn't ship a first-party DAP plugin either. A periscope-PhpStorm story requires either a DBGp bridge (which we won't build) or a dedicated PhpStorm plugin (v2 work, see roadmap)
 2. Maintaining two protocol implementations doubles the maintenance burden
 3. DBGp's XML-over-TCP is awful and we don't want to reward it

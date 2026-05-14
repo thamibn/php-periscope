@@ -28,7 +28,7 @@ features:
     details: 3.3× faster than Xdebug when inactive, 4.1× faster in trace mode. Function-boundary recording, not opcode-level — overhead stays under 5× even on hot paths.
   - icon: "🎯"
     title: Built for Laravel 13
-    details: v1 supports Laravel 11 / 12 / 13. Auto-discovers your queries, jobs, events, exceptions, cache + Redis ops. Toolbar chip injects into HTML responses. UI mounts at /periscope.
+    details: v1 supports Laravel 12 / 13. Auto-discovers your queries, jobs, events, exceptions, cache + Redis ops. Toolbar chip injects into HTML responses. UI mounts at /periscope.
   - icon: "🧰"
     title: Works where you work
     details: VSCode + DAP debugger, browser UI on localhost:9999, exportable .html traces for sharing with colleagues — no SaaS, no telemetry, your data never leaves the box.
@@ -77,6 +77,6 @@ Telescope is read-only after the fact. Xdebug needs a re-run with breakpoints. D
 
 ## Status
 
-**v0.1.0-alpha.** Built for PHP 8.3 on macOS + Linux. Laravel-only on the framework side; the C extension is framework-agnostic and Symfony / WordPress adapters are post-v1.
+**v0.1.0-alpha.** Built for PHP 8.3 + 8.4 on macOS + Linux. Laravel-only on the framework side (Laravel 12 / 13); the C extension is framework-agnostic and Symfony / WordPress adapters are post-v1.
 
 See [docs/ROADMAP.md](/guide/roadmap) for what's next.

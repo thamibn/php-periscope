@@ -70,10 +70,10 @@ make ci
 3. **Observer API only, no DBGp.** We use Zend Observer API (PHP 8.0+) and DAP. Do not add DBGp protocol code.
 4. **Cap'n Proto, not Protobuf**, for the trace format. Decision recorded in `docs/ARCHITECTURE.md`.
 5. **Function-boundary recording, not opcode-level.** v1 captures variables only at function entry/exit. Do not add per-opcode hooks.
-6. **PHP 8.3 only for v1.** Do not add 8.1/8.2/8.4 compat in v1; that's a v1.1 sprint.
+6. **PHP 8.3 + 8.4 for v1.** `scripts/install.sh` accepts both. Do not add 8.1 / 8.2 compat in v1; that's a v1.1 sprint.
 7. **macOS + Linux only.** Skip Windows code paths.
 8. **No Laravel-version-specific code in `extension/`.** Framework details belong in `laravel-adapter/` (Composer package), not the C layer. (The extension stays framework-agnostic; only the Composer adapter is Laravel-specific.)
-9. **Laravel-only in v1.** Don't add Symfony/WordPress/CodeIgniter code paths, tests, or doc claims. Other frameworks ship as separate Composer packages post-v1.
+9. **Laravel-only in v1.** Adapter targets Laravel 12.x + 13.x (Laravel 11 is excluded because `laravel/mcp` 0.7 pulls `illuminate/json-schema` 12.41+). Don't add Symfony / WordPress / CodeIgniter code paths, tests, or doc claims. Other frameworks ship as separate Composer packages post-v1.
 
 ## Git Commit Rules
 

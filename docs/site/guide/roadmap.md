@@ -8,8 +8,8 @@ What's shipping today:
 
 - ✅ C extension with Zend Observer API integration, full variable capture, Cap'n Proto trace writing.
 - ✅ Rust daemon: DAP server, replay engine, HTTP API, WebSocket fanout.
-- ✅ SolidJS UI with timeline scrubber, 15 panels, dark theme, Tailwind styling.
-- ✅ Laravel adapter: hooks for queries, logs, cache, jobs, events, mail, redis, HTTP client, exceptions, models, notifications, views, gates, commands, schedules, batches.
+- ✅ SolidJS UI with timeline scrubber, 18 panels, dark theme, Tailwind styling.
+- ✅ Laravel adapter: 18 hooks — queries, logs, cache, jobs, batches, events, mail, notifications, redis, HTTP client, exceptions, models, views, gates, commands, schedules, request lifecycle, `dd()`/`dump()` captures.
 - ✅ Insights panel: N+1 detection, slow-query analyser, AI advisor (opt-in via `laravel/ai`).
 - ✅ AI-native MCP server via `laravel/mcp` (8 tools: list / trace / summary / insights / timeline / state / events / file).
 - ✅ Floating toolbar chip + Web Vitals capture.

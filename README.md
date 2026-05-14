@@ -30,7 +30,7 @@ Both build the C extension against your PHP, drop the daemon binaries into your 
 **Then in your Laravel app:**
 
 ```bash
-# add to any Laravel 11 / 12 / 13 app
+# add to any Laravel 12 / 13 app
 composer require periscopephp/laravel
 
 # start the daemon, open the UI
@@ -68,7 +68,7 @@ See [docs/site/guide/architecture.md](docs/site/guide/architecture.md) for the d
 
 ## v1 scope
 
-- **Laravel only** (11.x / 12.x / 13.x). The C extension is framework-agnostic; Symfony / WordPress / CodeIgniter / plain-PHP adapters are post-v1.
+- **Laravel only** (12.x / 13.x). The C extension is framework-agnostic; Symfony / WordPress / CodeIgniter / plain-PHP adapters are post-v1.
 - **PHP 8.3 / 8.4** • macOS + Linux • **Local development only** (no production sampling in v1).
 - **Function-boundary recording**, not opcode-level — overhead < 5× even on hot paths.
 - **No telemetry, no SaaS** — traces stay on disk; the MCP server is local-only over stdio.

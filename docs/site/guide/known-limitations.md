@@ -11,7 +11,7 @@ What v1 deliberately does *not* do. Each item maps to a future-version commitmen
 ## Frameworks
 
 - **Laravel only in v1.** The C extension is framework-agnostic, but the only adapter we ship + test + market is Laravel. Symfony / WordPress / CodeIgniter / plain PHP support is v1.1+ as separate Composer packages.
-- **Laravel versions: 11.x / 12.x / 13.x.** Older versions may work but aren't tested.
+- **Laravel versions: 12.x / 13.x.** Laravel 11 may work with hand-edited composer constraints but isn't supported — `laravel/mcp` requires `illuminate/json-schema` 12.41+, so the MCP server in particular needs Laravel 12+. Older versions are out.
 
 ## Capture model
 

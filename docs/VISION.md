@@ -33,7 +33,7 @@ php-periscope merges all three. Set a breakpoint. Hit it. See *everything* that 
 - Production debugging (deferred to v2)
 - Async / Swoole / Frankenphp / Octane
 - Windows
-- PHP < 8.3 or > 8.3
+- PHP 8.1 / 8.2 (deferred to v1.1); PHP versions outside 8.3 / 8.4
 
 See `SCOPE.md` for the full list of what is and isn't in v1.
 

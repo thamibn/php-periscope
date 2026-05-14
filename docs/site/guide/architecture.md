@@ -36,7 +36,7 @@ Key invariants:
 - **Function-boundary recording**, not opcode-level. v1 captures variables only at entry/exit. (Per-opcode hooks would mean Xdebug-tier overhead; we ship lower.)
 - **Framework-agnostic.** No Laravel knowledge here — that lives in the adapter.
 - **AddressSanitizer-clean** on every CI run. A red ASan job blocks merge.
-- **PHP 8.3 only in v1.** 8.4 works; 8.1/8.2 are v1.1.
+- **PHP 8.3 + 8.4 in v1.** 8.1 / 8.2 are a v1.1 sprint.
 
 Captured per frame: function name, declaring class, file:line, depth, enter/exit timestamps, arguments, return value, scope reference. Variable capture handles nulls, primitives, strings (truncated at `periscope.max_string`), arrays (size-capped at `max_array_items`), objects (property-capped at `max_object_props`), enums, closures, circular references, and lazy proxies. All under the depth cap (`max_depth = 5` by default).
 
@@ -58,13 +58,13 @@ The browser UI. SolidJS over Svelte for the fine-grained reactivity that makes t
 
 Built with Vite + Bun. Tailwind for styles, dark-default theme. The whole bundle is ~27KB gzipped.
 
-Panels: Overview, Source + Scope, Queries, Logs, Cache, Jobs, Events, HTTP, Redis, Mail, Notifications, Exceptions, Insights, **Performance (flame graph)**, Request, Response. Each panel only renders if there's data for it — empty panels are hidden.
+Eighteen panels: Overview, Source + Scope, Queries, Models, Logs, Cache, Jobs, Events, HTTP, Redis, Mail, Notifications, Exceptions, Dumps, Insights, **Performance (flame graph)**, Request, Response. Each panel only renders if there's data for it — empty panels are hidden.
 
 ### 4. Laravel adapter (`laravel-adapter/`)
 
 A Composer package (`periscopephp/laravel`) that:
 
-- Registers event-listener hooks for Laravel's QueryExecuted, Cache events, Job lifecycle, Mail / Notification dispatch, Redis commands, HTTP client send/receive, exceptions, model writes, view renders, gates, command dispatch, schedule events.
+- Registers eighteen event-listener hooks: queries, logs, cache, jobs, batches, events, mail, notifications, redis, HTTP client, exceptions, model writes, view renders, gates, console commands, schedule events, request lifecycle, and `dd()`/`dump()` captures.
 - Records every observed event into the C extension via `periscope_record_event()`.
 - Injects an optional toolbar chip into HTML responses.
 - Mounts the SolidJS UI inside the host Laravel app at a configurable prefix (`/periscope` default).

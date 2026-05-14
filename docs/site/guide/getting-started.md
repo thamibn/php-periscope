@@ -5,11 +5,11 @@ In about three minutes you'll have the extension loaded, the daemon running, and
 ## Prerequisites
 
 - **macOS 13+ or Linux** (Ubuntu 22.04+ tested). Windows: see [the Windows section below](#windows-wsl2).
-- **PHP 8.3** (8.4 also works). v1 doesn't support older PHPs.
+- **PHP 8.3 or 8.4.** v1 doesn't support older PHPs (8.1 / 8.2 are a v1.1 sprint).
 - **A C++17 toolchain.** Clang on macOS (Xcode CLT), gcc on Linux.
 - **Rust** (rustup) — needed to build the daemon.
 - **Cap'n Proto C++ library**: `brew install capnp` / `apt-get install libcapnp-dev capnproto`.
-- **A Laravel app.** Adapter targets 11 / 12 / 13.
+- **A Laravel app.** Adapter targets Laravel 12 / 13.
 
 ### Windows (WSL2)
 
