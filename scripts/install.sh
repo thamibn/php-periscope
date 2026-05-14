@@ -66,8 +66,107 @@ run() {
   fi
 }
 
+need() { printf "  \033[36m?\033[0m %s\n" "$1"; }
+
 # Locate the repo root regardless of where the user invokes from.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Tracks soft-missing requirements collected during preconditions. If any blockers
+# remain after the prompt-and-install pass, the script prints them all and exits.
+BLOCKERS=()
+block() { BLOCKERS+=("$1"); }
+
+# Prompt for a Y/n answer on /dev/tty. Args: question, default ("Y"|"N").
+# Returns 0 for yes, 1 for no. Non-interactive returns the default's exit code.
+ask_yes_no() {
+  local q="$1" default="${2:-Y}" suffix="[Y/n]" ans=""
+  [[ "$default" = "N" ]] && suffix="[y/N]"
+  if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+    [[ "$default" = "Y" ]] && return 0 || return 1
+  fi
+  printf "  %s %s " "$q" "$suffix" >&2
+  read -r ans </dev/tty || true
+  [[ -z "$ans" ]] && ans="$default"
+  case "$ans" in
+    [Yy]|[Yy][Ee][Ss]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prompt for a path on /dev/tty. Args: prompt. Stdout: expanded path or empty.
+ask_path() {
+  local prompt="$1" user_path=""
+  if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then return 0; fi
+  printf "  %s: " "$prompt" >&2
+  read -r user_path </dev/tty || true
+  [[ -z "$user_path" ]] && return 0
+  printf '%s' "${user_path/#\~/$HOME}"
+}
+
+# Ensure Rust toolchain is available. Auto-install via rustup with consent.
+ensure_cargo() {
+  if command -v cargo >/dev/null 2>&1; then
+    ok "cargo: $(command -v cargo)"
+    return 0
+  fi
+  local cmd="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable"
+  need "rust toolchain not found (needed to build the daemon)"
+  printf "      command: %s\n" "$cmd" >&2
+  if ask_yes_no "run this now? (Y = install for you, N = run it yourself and re-run this script)" Y; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+      printf "  \033[2m(dry-run)\033[0m curl ... rustup.rs | sh -s -- -y --profile minimal\n"
+      ok "cargo: (dry-run; would be installed)"
+      return 0
+    fi
+    if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; then
+      # shellcheck disable=SC1091
+      [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+      export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+    if command -v cargo >/dev/null 2>&1; then
+      ok "cargo: $(command -v cargo) (just installed)"
+      return 0
+    fi
+    block "rustup install failed — install Rust manually (https://rustup.rs) and re-run"
+    return 1
+  fi
+  block "rust toolchain (skipped install)"
+  return 1
+}
+
+# Ensure Cap'n Proto C++ library is available. Auto-install via brew/apt with consent.
+ensure_capnp() {
+  if command -v capnp >/dev/null 2>&1; then
+    ok "capnp: $(command -v capnp)"
+    return 0
+  fi
+  need "Cap'n Proto not found (needed to build the trace serializer)"
+  local installer="" install_cmd=""
+  case "$(uname -s)" in
+    Darwin) command -v brew >/dev/null 2>&1 && { installer="brew" ; install_cmd="brew install capnp" ; } ;;
+    Linux)  command -v apt-get >/dev/null 2>&1 && { installer="apt" ; install_cmd="sudo apt-get install -y libcapnp-dev capnproto" ; } ;;
+  esac
+  if [[ -z "$installer" ]]; then
+    block "Cap'n Proto (no supported package manager found — install capnproto manually)"
+    return 1
+  fi
+  printf "      command: %s\n" "$install_cmd" >&2
+  if ask_yes_no "run this now? (Y = install for you, N = run it yourself and re-run this script)" Y; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+      printf "  \033[2m(dry-run)\033[0m %s\n" "$install_cmd"
+      ok "capnp: (dry-run; would be installed)"
+      return 0
+    fi
+    if eval "$install_cmd" && command -v capnp >/dev/null 2>&1; then
+      ok "capnp: $(command -v capnp) (just installed)"
+      return 0
+    fi
+    block "Cap'n Proto install failed — try manually: $install_cmd"
+    return 1
+  fi
+  block "Cap'n Proto (skipped install)"
+  return 1
+}
 
 # ---------- preconditions ----------
 
@@ -114,42 +213,109 @@ EOF
 esac
 ok "OS: $os"
 
-# pick a PHP. CLI knob > $PHP > first one in PATH.
+# pick a PHP. CLI knob > $PHP > first one in PATH > known locations > prompt.
 if [[ -z "$PHP_BIN" ]]; then
   PHP_BIN="${PHP:-$(command -v php || true)}"
 fi
-[[ -n "$PHP_BIN" && -x "$PHP_BIN" ]] || fail "no php in PATH. Set PHP=/path/to/php or use --php /path/to/php."
+if [[ -z "$PHP_BIN" || ! -x "$PHP_BIN" ]]; then
+  for cand in \
+    /opt/homebrew/bin/php \
+    /usr/local/bin/php \
+    "$HOME/Library/Application Support/Herd/bin/php" \
+    "$HOME/Library/Application Support/Herd/bin/php84" \
+    "$HOME/Library/Application Support/Herd/bin/php83" \
+    /usr/bin/php ; do
+    [[ -x "$cand" ]] && { PHP_BIN="$cand" ; break ; }
+  done
+fi
+if [[ -z "$PHP_BIN" || ! -x "$PHP_BIN" ]]; then
+  need "PHP not found in PATH or standard locations (Homebrew, Herd, system)"
+  printf "  Install via Herd (https://herd.laravel.com) or \`brew install php@8.3\`, then re-run.\n" >&2
+  PHP_BIN="$(ask_path 'Or type a path to a PHP 8.3/8.4 binary (Enter to abort)')"
+fi
+if [[ -z "$PHP_BIN" || ! -x "$PHP_BIN" ]]; then
+  block "PHP 8.3 or 8.4 (required)"
+fi
 
-php_version="$("$PHP_BIN" -r 'echo PHP_VERSION;')"
-ok "PHP: $php_version ($PHP_BIN)"
+if [[ -n "$PHP_BIN" && -x "$PHP_BIN" ]]; then
+  php_version="$("$PHP_BIN" -r 'echo PHP_VERSION;')"
+  case "$php_version" in
+    8.3.*|8.4.*) ok "PHP: $php_version ($PHP_BIN)" ;;
+    *) ok "PHP: $php_version ($PHP_BIN)" ; block "PHP $php_version is too old — v1 requires 8.3 or 8.4" ;;
+  esac
 
-case "$php_version" in
-  8.3.*|8.4.*) ;;
-  *) fail "v1 requires PHP 8.3 or newer (got $php_version)." ;;
+  # pick php-config alongside php. brew/macOS keep them paired.
+  if command -v php-config >/dev/null 2>&1; then
+    PHP_CONFIG="$(command -v php-config)"
+  else
+    PHP_CONFIG="$(dirname "$PHP_BIN")/php-config"
+  fi
+  if [[ -x "$PHP_CONFIG" ]]; then
+    ok "php-config: $PHP_CONFIG"
+  else
+    block "php-config not found (looked for: $PHP_CONFIG) — install PHP dev headers (brew: included; apt: php-dev)"
+  fi
+
+  EXT_DIR="$("$PHP_BIN" -r 'echo ini_get("extension_dir");')"
+  SCAN_DIR="$("$PHP_BIN" -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')"
+  [[ -n "$EXT_DIR"  ]] && ok "extension_dir: $EXT_DIR"  || block "could not detect PHP extension_dir"
+  [[ -n "$SCAN_DIR" ]] && ok "scan dir:      $SCAN_DIR" || block "could not detect PHP conf.d scan dir"
+fi
+
+# Rust + Cap'n Proto via auto-install helpers (Y/n prompts; record blocker on decline).
+ensure_cargo
+ensure_capnp
+
+# Detect IDE installs (informational — no install attempted in this phase).
+# JetBrains config dirs:
+PHPSTORM_DIRS=()
+case "$(uname -s)" in
+  Darwin) for d in "$HOME/Library/Application Support/JetBrains/"PhpStorm* ; do [[ -d "$d" ]] && PHPSTORM_DIRS+=("$d") ; done ;;
+  Linux)  for d in "$HOME/.local/share/JetBrains/"PhpStorm*               ; do [[ -d "$d" ]] && PHPSTORM_DIRS+=("$d") ; done ;;
 esac
-
-# pick php-config alongside php. brew/macOS keep them paired.
-if command -v php-config >/dev/null 2>&1; then
-  PHP_CONFIG="$(command -v php-config)"
+if [[ ${#PHPSTORM_DIRS[@]} -gt 0 ]]; then
+  ok "PhpStorm: ${#PHPSTORM_DIRS[@]} config dir(s) detected"
 else
-  PHP_CONFIG="$(dirname "$PHP_BIN")/php-config"
+  warn "PhpStorm: not detected (plugin will be skipped — browser UI at http://localhost:9999 still works)"
 fi
-[[ -x "$PHP_CONFIG" ]] || fail "php-config not found (looked for: $PHP_CONFIG). Install php's dev headers (brew: php → already includes; apt: php-dev)."
-ok "php-config: $PHP_CONFIG"
-
-# detect extension dir + scandir
-EXT_DIR="$("$PHP_BIN" -r 'echo ini_get("extension_dir");')"
-SCAN_DIR="$("$PHP_BIN" -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')"
-[[ -n "$EXT_DIR" ]]  || fail "could not detect extension_dir."
-[[ -n "$SCAN_DIR" ]] || fail "could not detect PHP_CONFIG_FILE_SCAN_DIR — no conf.d available to auto-load into."
-ok "extension_dir: $EXT_DIR"
-ok "scan dir:      $SCAN_DIR"
-
-# need cargo for the daemon
-if ! command -v cargo >/dev/null 2>&1; then
-  fail "rust toolchain not found. Install via https://rustup.rs/ then re-run."
+# VSCode `code` CLI:
+VSCODE_CLI=""
+if command -v code >/dev/null 2>&1; then
+  VSCODE_CLI="$(command -v code)"
+else
+  case "$(uname -s)" in
+    Darwin)
+      for app in \
+        "/Applications/Visual Studio Code.app" \
+        "/Applications/Visual Studio Code - Insiders.app" \
+        "/Applications/VSCodium.app" \
+        "/Applications/Cursor.app" ; do
+        local_cli="$app/Contents/Resources/app/bin/code"
+        [[ -x "$local_cli" ]] && { VSCODE_CLI="$local_cli" ; break ; }
+      done
+      ;;
+    Linux)
+      for cli in "/snap/bin/code" "/usr/share/code/bin/code" "$HOME/.vscode-server/cli/code" ; do
+        [[ -x "$cli" ]] && { VSCODE_CLI="$cli" ; break ; }
+      done
+      ;;
+  esac
 fi
-ok "cargo: $(command -v cargo)"
+if [[ -n "$VSCODE_CLI" ]]; then
+  ok "VSCode/Cursor: $VSCODE_CLI"
+else
+  warn "VSCode/Cursor: not detected (extension will be skipped — browser UI still works)"
+fi
+
+# All-blockers gate. Better to show everything missing at once than fail-fast.
+if [[ ${#BLOCKERS[@]} -gt 0 ]]; then
+  printf "\n"
+  printf "  \033[31m✗\033[0m Cannot continue — missing required tools:\n" >&2
+  for b in "${BLOCKERS[@]}"; do
+    printf "      - %s\n" "$b" >&2
+  done
+  exit 1
+fi
 
 # choose install prefix
 if [[ -z "$PREFIX" ]]; then
@@ -288,16 +454,16 @@ install_bin "$DAEMON_BIN" periscope-daemon
 
 step "install JetBrains plugin (if PhpStorm detected)"
 install_jetbrains_plugin() {
-  # Detect every PhpStorm install on this machine.
-  local ide_dirs=()
-  case "$(uname -s)" in
-    Darwin) for d in "$HOME/Library/Application Support/JetBrains/"PhpStorm* ; do [[ -d "$d" ]] && ide_dirs+=("$d") ; done ;;
-    Linux)  for d in "$HOME/.local/share/JetBrains/"PhpStorm*               ; do [[ -d "$d" ]] && ide_dirs+=("$d") ; done ;;
-  esac
-
-  if [[ ${#ide_dirs[@]} -eq 0 ]]; then
-    warn "no PhpStorm install detected — skipping JetBrains plugin (this is fine if you use VSCode)"
-    return 0
+  # PHPSTORM_DIRS was populated during preconditions. If empty, offer a manual path.
+  if [[ ${#PHPSTORM_DIRS[@]} -eq 0 ]]; then
+    local hint
+    hint="$(ask_path 'PhpStorm config dir (or Enter to skip)')"
+    if [[ -n "$hint" && -d "$hint" ]]; then
+      PHPSTORM_DIRS+=("$hint")
+    else
+      warn "PhpStorm not configured — skipping plugin (browser UI at http://localhost:9999 still works)"
+      return 0
+    fi
   fi
 
   # Source the .zip — prefer locally-built artefact for contributor flow,
@@ -307,25 +473,25 @@ install_jetbrains_plugin() {
   local_zip="$(ls -t "$ROOT/jetbrains-plugin/build/distributions/"*.zip 2>/dev/null | head -1 || true)"
   if [[ -n "$local_zip" ]]; then
     zip_src="$local_zip"
-    trace "using locally-built plugin: $zip_src"
+    ok "using locally-built plugin: $zip_src"
   else
     zip_src="$(mktemp -t periscope-jetbrains-XXXXXX.zip)"
     local zip_url="https://github.com/thamibn/php-periscope/releases/latest/download/periscope-jetbrains.zip"
-    trace "fetching $zip_url"
+    printf "  fetching %s\n" "$zip_url"
     if [[ $DRY_RUN -eq 1 ]]; then
       printf "  \033[2m(dry-run)\033[0m curl -fsSL %s -o %s\n" "$zip_url" "$zip_src"
     else
       if ! curl -fsSL "$zip_url" -o "$zip_src"; then
         warn "could not download JetBrains plugin from GitHub Releases — skipping"
+        warn "(contributors: run \`cd jetbrains-plugin && ./gradlew buildPlugin\` then re-run install)"
         return 0
       fi
     fi
   fi
 
-  for ide_dir in "${ide_dirs[@]}"; do
+  for ide_dir in "${PHPSTORM_DIRS[@]}"; do
     local plugins_dir="$ide_dir/plugins"
     run mkdir -p "$plugins_dir"
-    # Nuke any prior periscope plugin install so unzip can write fresh.
     run rm -rf "$plugins_dir/periscope-jetbrains"
     if [[ $DRY_RUN -eq 1 ]]; then
       printf "  \033[2m(dry-run)\033[0m unzip -q -o %s -d %s\n" "$zip_src" "$plugins_dir"
@@ -335,10 +501,63 @@ install_jetbrains_plugin() {
     ok "plugin installed: $(basename "$ide_dir")"
   done
 
-  # Cleanup tempfile only if we downloaded it (don't delete the contributor's local build).
   [[ "$zip_src" != "$local_zip" ]] && rm -f "$zip_src" || true
 }
 install_jetbrains_plugin
+
+# ---------- VSCode extension ----------
+
+step "install VSCode extension (if VSCode/Cursor detected)"
+install_vscode_extension() {
+  # VSCODE_CLI was populated during preconditions. If empty, offer a manual path.
+  if [[ -z "$VSCODE_CLI" ]]; then
+    local hint
+    hint="$(ask_path 'Path to VSCode/Cursor app or `code` CLI (or Enter to skip)')"
+    if [[ -n "$hint" ]]; then
+      for cand in "$hint" "$hint/Contents/Resources/app/bin/code" "$hint/bin/code" ; do
+        [[ -x "$cand" ]] && { VSCODE_CLI="$cand" ; break ; }
+      done
+    fi
+    if [[ -z "$VSCODE_CLI" ]]; then
+      warn "VSCode/Cursor not configured — skipping extension (browser UI still works)"
+      return 0
+    fi
+  fi
+
+  # Source the .vsix.
+  local vsix_src=""
+  local local_vsix
+  local_vsix="$(ls -t "$ROOT/vscode-extension/"*.vsix 2>/dev/null | head -1 || true)"
+  if [[ -n "$local_vsix" ]]; then
+    vsix_src="$local_vsix"
+    ok "using locally-built vsix: $vsix_src"
+  else
+    vsix_src="$(mktemp -t periscope-vscode-XXXXXX.vsix)"
+    local vsix_url="https://github.com/thamibn/php-periscope/releases/latest/download/php-periscope.vsix"
+    printf "  fetching %s\n" "$vsix_url"
+    if [[ $DRY_RUN -eq 1 ]]; then
+      printf "  \033[2m(dry-run)\033[0m curl -fsSL %s -o %s\n" "$vsix_url" "$vsix_src"
+    else
+      if ! curl -fsSL "$vsix_url" -o "$vsix_src"; then
+        warn "could not download VSCode extension from GitHub Releases — skipping"
+        return 0
+      fi
+    fi
+  fi
+
+  if [[ $DRY_RUN -eq 1 ]]; then
+    printf "  \033[2m(dry-run)\033[0m %s --install-extension %s --force\n" "$VSCODE_CLI" "$vsix_src"
+  else
+    "$VSCODE_CLI" --install-extension "$vsix_src" --force || {
+      warn "VSCode --install-extension failed — try manually: $VSCODE_CLI --install-extension $vsix_src"
+      return 0
+    }
+  fi
+  ok "VSCode extension installed via $VSCODE_CLI"
+
+  [[ "$vsix_src" != "$local_vsix" ]] && rm -f "$vsix_src" || true
+}
+install_vscode_extension
 
 # ---------- verify ----------
 
@@ -368,11 +587,13 @@ cat <<EOF
     4. Hit any route in your Laravel app — the trace appears in the UI.
 
   IDE setup:
-    - VSCode:    install the periscope extension (built from vscode-extension/),
-                 hit F5 — debugger attaches to the latest .cptrace.
-    - PhpStorm:  plugin is already installed by this script. Restart PhpStorm,
-                 then Run > Edit Configurations > + > Periscope > pick a trace.
+    - PhpStorm:  plugin auto-installed into your PhpStorm config dir.
+                 Restart PhpStorm, then Run > Edit Configurations > + > Periscope > pick a trace.
                  Hit Shift+F9 — breakpoints + step + STEP BACK all work.
+    - VSCode:    extension auto-installed via the VSCode CLI.
+                 Restart VSCode, then hit F5 — debugger attaches to the latest .cptrace.
+    - No IDE?    The browser UI at http://localhost:9999 has the full trace viewer.
+                 Install PhpStorm or VSCode later and re-run this script to add IDE debug.
 
   Updating later:
     A. Manual — re-run this same one-liner whenever you want the newest version:

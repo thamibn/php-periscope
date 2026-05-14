@@ -5,11 +5,11 @@ In about three minutes you'll have the extension loaded, the daemon running, and
 ## Prerequisites
 
 - **macOS 13+ or Linux** (Ubuntu 22.04+ tested). Windows: see [the Windows section below](#windows-wsl2).
-- **PHP 8.3 or 8.4.** v1 doesn't support older PHPs (8.1 / 8.2 are a v1.1 sprint).
+- **PHP 8.3 or 8.4.** Install via [Herd](https://herd.laravel.com) or `brew install php@8.3`. v1 doesn't support 8.1 / 8.2 (v1.1 sprint).
 - **A C++17 toolchain.** Clang on macOS (Xcode CLT), gcc on Linux.
-- **Rust** (rustup) — needed to build the daemon.
-- **Cap'n Proto C++ library**: `brew install capnp` / `apt-get install libcapnp-dev capnproto`.
 - **A Laravel app.** Adapter targets Laravel 12 / 13.
+
+The install script checks for everything else (Rust, Cap'n Proto, PhpStorm, VSCode/Cursor) and offers to install what's missing — you'll see a green ✓ for each requirement that's already present, and a Y/n prompt before anything is installed. No surprise downloads.
 
 ### Windows (WSL2)
 
@@ -117,15 +117,9 @@ From there your AI can call `list_traces`, `get_summary`, `get_insights`, `query
 
 == VSCode
 
-Marketplace listing (`periscopephp.php-periscope`) lands in v0.2. Until then, build locally from `vscode-extension/`:
+The install script you ran above **already installed the extension into VSCode (or Cursor, or VSCodium) if it found a `code` CLI on your machine** — no separate step. Restart your editor, then hit **F5** in your Laravel project — periscope synthesises a launch config that opens the most recent trace. Step Over / Step Into / Step Out / **Step Back** all work via the daemon's DAP transport.
 
-```bash
-cd vscode-extension
-npm install && npm run package
-code --install-extension php-periscope-0.1.0.vsix
-```
-
-Hit **F5** in your Laravel project — periscope synthesises a launch config that opens the most recent trace. Step Over / Step Into / Step Out / **Step Back** all work via the daemon's DAP transport.
+Didn't have an editor at install time? Install VSCode/Cursor and re-run the install script — it's idempotent and will pick up the new install.
 
 == PhpStorm
 
