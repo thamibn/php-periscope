@@ -730,7 +730,11 @@ install_vscode_extension() {
     vsix_src="$local_vsix"
     ok "using locally-built vsix: $vsix_src"
   else
-    vsix_src="$(mktemp -t periscope-vscode-XXXXXX.vsix)"
+    # mktemp -t adds random chars AFTER the template, breaking .vsix suffix
+    # which VSCode requires. Use mktemp -d + a fixed filename inside instead.
+    local vsix_tmpdir
+    vsix_tmpdir="$(mktemp -d -t periscope-vscode-XXXXXX)"
+    vsix_src="$vsix_tmpdir/php-periscope.vsix"
     local vsix_url="https://github.com/thamibn/php-periscope/releases/latest/download/php-periscope.vsix"
     printf "  fetching %s\n" "$vsix_url"
     if [[ $DRY_RUN -eq 1 ]]; then
@@ -753,7 +757,8 @@ install_vscode_extension() {
   fi
   ok "$label: extension installed"
 
-  [[ "$vsix_src" != "$local_vsix" ]] && rm -f "$vsix_src" || true
+  # Clean up the temp dir we created; leave the contributor's local build alone.
+  [[ -n "${vsix_tmpdir:-}" ]] && rm -rf "$vsix_tmpdir" || true
 }
 
 if [[ ${#VSCODE_CLIS[@]} -eq 0 ]]; then
