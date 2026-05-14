@@ -234,10 +234,18 @@ final class UiController
               <style>body{font-family:system-ui;background:#0b0f15;color:#e7eaf0;padding:3rem;max-width:36rem;margin:auto}
               code{background:#11161f;padding:.1rem .35rem;border-radius:.25rem}h1{font-weight:600}</style></head>
               <body>
-                <h1>periscope UI bundle not built</h1>
-                <p>Run <code>cd ui && bun install && bun run build</code> in the periscope checkout,
-                then point <code>PERISCOPE_UI_BUNDLE_DIR</code> at the resulting <code>ui/dist/</code>.</p>
-                <p>Or open the daemon's UI directly at <a href="{$base}">{$base}</a>.</p>
+                <h1>periscope UI bundle not found</h1>
+                <p>This is unusual — the adapter normally ships a pre-built UI inside
+                <code>vendor/thamibn/laravel-periscope/resources/ui-bundle/</code>. If you're seeing this,
+                <a href="https://github.com/thamibn/php-periscope/issues">please file a bug</a> with
+                your install method (<code>composer require</code>, brew, monorepo checkout, etc).</p>
+                <p>In the meantime, two options:</p>
+                <ul>
+                  <li>Open the daemon's UI directly at <a href="{$base}">{$base}</a> — same UI, different URL.</li>
+                  <li>Or build the bundle from source in a periscope checkout:
+                    <code>cd ui && (npm install || bun install || pnpm install) && (npm run build || bun run build || pnpm build)</code>,
+                    then set <code>PERISCOPE_UI_BUNDLE_DIR</code> to the resulting <code>ui/dist/</code> path.</li>
+                </ul>
               </body>
             </html>
             HTML;

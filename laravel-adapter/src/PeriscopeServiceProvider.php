@@ -314,12 +314,15 @@ final class PeriscopeServiceProvider extends ServiceProvider
             return $explicit;
         }
         $candidates = [
-            // Sibling to the package (path-repo / monorepo development)
+            // Pre-built bundle shipped inside the adapter — the normal end-user path.
+            __DIR__ . '/../resources/ui-bundle',
+            // Monorepo / path-repo development checkout.
             __DIR__ . '/../../../ui/dist',
-            // composer-installed: vendor/thamibn/laravel-periscope/ → vendor/../../ui/dist
-            base_path('ui/dist'),
-            // app's own published copy
+            __DIR__ . '/../../ui/dist',
+            // App's own published copy (php artisan vendor:publish --tag=periscope-ui).
             base_path('public/vendor/periscope'),
+            // Composer-installed app symlinking the UI build alongside vendor/ (rare).
+            base_path('ui/dist'),
         ];
         foreach ($candidates as $c) {
             $real = realpath($c);
