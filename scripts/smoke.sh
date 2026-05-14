@@ -18,23 +18,23 @@ echo "Phase 1 smoke tests"
 echo "==================="
 
 # 1. -m lists the extension
-out="$($PHP -d extension="$SO" -m 2>/dev/null | grep -c '^periscope$' || true)"
+out="$($PHP -d extension="$SO" -d periscope.verbose=1 -m 2>/dev/null | grep -c '^periscope$' || true)"
 [ "$out" = "1" ] && pass "php -m lists 'periscope'" || fail "php -m did not list periscope (got: $out)"
 
 # 2. stderr banner appears once on startup
-banner_count="$($PHP -d extension="$SO" -r 'echo "x";' 2>&1 1>/dev/null | grep -c 'periscope loaded' || true)"
+banner_count="$($PHP -d extension="$SO" -d periscope.verbose=1 -r 'echo "x";' 2>&1 1>/dev/null | grep -c 'periscope loaded' || true)"
 [ "$banner_count" = "1" ] && pass "stderr banner emitted exactly once" || fail "expected 1 banner, got $banner_count"
 
 # 3. Banner does NOT appear on stdout (would break SAPI consumers)
-stdout_only="$($PHP -d extension="$SO" -r 'echo "x";' 2>/dev/null)"
+stdout_only="$($PHP -d extension="$SO" -d periscope.verbose=1 -r 'echo "x";' 2>/dev/null)"
 [ "$stdout_only" = "x" ] && pass "stdout is uncontaminated" || fail "stdout was: $stdout_only"
 
 # 4. Exit code is 0
-$PHP -d extension="$SO" -r 'exit(0);' >/dev/null 2>&1 && pass "exit code 0 on clean run" || fail "non-zero exit"
+$PHP -d extension="$SO" -d periscope.verbose=1 -r 'exit(0);' >/dev/null 2>&1 && pass "exit code 0 on clean run" || fail "non-zero exit"
 
 # 5. 100 invocations don't crash (rough RSHUTDOWN sanity)
 for i in $(seq 1 100); do
-  $PHP -d extension="$SO" -r 'echo "";' >/dev/null 2>&1 || fail "crashed on invocation $i"
+  $PHP -d extension="$SO" -d periscope.verbose=1 -r 'echo "";' >/dev/null 2>&1 || fail "crashed on invocation $i"
 done
 pass "100 sequential invocations without crash"
 
@@ -45,7 +45,7 @@ echo "==================="
 # 6. Observer fires on the integration fixture — enter/exit balance
 fixture="tests/integration/hello.php"
 [ -f "$fixture" ] || fail "fixture $fixture missing"
-log="$($PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/null)"
+log="$($PHP -d extension="$SO" -d periscope.verbose=1 "$fixture" 2>&1 1>/dev/null)"
 enters="$(printf '%s\n' "$log" | grep -c '\[periscope\] enter ' || true)"
 exits="$(printf '%s\n' "$log" | grep -c '\[periscope\] exit  ' || true)"
 [ "$enters" -gt 0 ] && [ "$enters" = "$exits" ] && \
@@ -72,7 +72,7 @@ echo "Phase 3 smoke tests"
 echo "==================="
 
 # 10. Capture fixture exercises objects, enums, cycles, lazy proxies
-capture_log="$($PHP -d extension="$SO" tests/integration/capture.php 2>&1 1>/dev/null)"
+capture_log="$($PHP -d extension="$SO" -d periscope.verbose=1 tests/integration/capture.php 2>&1 1>/dev/null)"
 printf '%s\n' "$capture_log" | grep -q 'enum(Status::Active' && \
   pass "capture: backed enum shown with case + value" || \
   fail "capture: backed enum not captured properly"
@@ -91,14 +91,14 @@ printf '%s\n' "$capture_log" | grep -q '+ro:id' && \
 
 # 11. Namespace filter cuts noise dramatically
 fixture="tests/integration/hello.php"
-unfiltered="$($PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
-filtered="$($PHP -d extension="$SO" -d periscope.namespace_filter='Greeter' "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
+unfiltered="$($PHP -d extension="$SO" -d periscope.verbose=1 "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
+filtered="$($PHP -d extension="$SO" -d periscope.verbose=1 -d periscope.namespace_filter='Greeter' "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
 [ "$filtered" -lt "$unfiltered" ] && \
   pass "namespace_filter cuts observed calls ($unfiltered -> $filtered)" || \
   fail "namespace_filter did not reduce calls (still $filtered)"
 
 # 12. Kill switch silences everything
-killed="$(PERISCOPE_DISABLE=1 $PHP -d extension="$SO" "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
+killed="$(PERISCOPE_DISABLE=1 $PHP -d extension="$SO" -d periscope.verbose=1 "$fixture" 2>&1 1>/dev/null | grep -c '\[periscope\] enter ' || true)"
 [ "$killed" = "0" ] && \
   pass "PERISCOPE_DISABLE=1 produces zero observation lines" || \
   fail "kill switch leaked $killed observations"
@@ -109,7 +109,7 @@ echo "==================="
 
 # 13. trace_dir writes a .cptrace file
 TRACE_DIR=$(mktemp -d /tmp/periscope-smoke-XXXXX)
-$PHP -d extension="$SO" -d periscope.trace_dir="$TRACE_DIR" "$fixture" >/dev/null 2>&1
+$PHP -d extension="$SO" -d periscope.verbose=1 -d periscope.trace_dir="$TRACE_DIR" "$fixture" >/dev/null 2>&1
 TRACE_FILE=$(ls "$TRACE_DIR"/*.cptrace 2>/dev/null | head -1)
 [ -n "$TRACE_FILE" ] && [ -s "$TRACE_FILE" ] && \
   pass "trace_dir produces non-empty .cptrace ($(wc -c < "$TRACE_FILE") bytes)" || \
@@ -133,7 +133,7 @@ rm -rf "$TRACE_DIR"
 # 15. Trace retention sweep — old files get pruned at RINIT
 RTD=$(mktemp -d /tmp/periscope-smoke-retention-XXXXX)
 for i in 1 2 3 4 5; do printf "fake" > "$RTD/old-$i.cptrace"; sleep 0.01; done
-$PHP -d extension="$SO" -d periscope.trace_dir="$RTD" -d periscope.max_traces=2 -d periscope.max_trace_age_seconds=0 -r 'echo "";' >/dev/null 2>&1
+$PHP -d extension="$SO" -d periscope.verbose=1 -d periscope.trace_dir="$RTD" -d periscope.max_traces=2 -d periscope.max_trace_age_seconds=0 -r 'echo "";' >/dev/null 2>&1
 remaining="$(ls "$RTD"/*.cptrace 2>/dev/null | wc -l | tr -d ' ')"
 [ "$remaining" -le "3" ] && \
   pass "retention sweep enforced max_traces=2 (5 old + 1 new -> $remaining files)" || \
@@ -149,7 +149,7 @@ if [ -x "$DAEMON_BIN" ]; then
     # 16. Generate a trace then point the daemon at the dir; hit a few /api/*
     SMOKE_TRACE_DIR=$(mktemp -d /tmp/periscope-smoke-api-XXXXX)
     SMOKE_PORT=29998
-    $PHP -d extension="$SO" -d periscope.trace_dir="$SMOKE_TRACE_DIR" \
+    $PHP -d extension="$SO" -d periscope.verbose=1 -d periscope.trace_dir="$SMOKE_TRACE_DIR" \
         -r 'function greet($n){ return "hi $n"; } echo greet("world");' >/dev/null 2>&1
     TRACE_FILE=$(ls "$SMOKE_TRACE_DIR"/*.cptrace 2>/dev/null | head -1)
     TRACE_ID=$(basename "$TRACE_FILE" .cptrace)
@@ -260,7 +260,7 @@ if [ -x "$DAEMON_BIN" ]; then
 
     # Run PHP with the daemon link enabled.
     PERISCOPE_DAEMON_SOCKET="$SOCK" \
-      $PHP -d extension="$SO" -d periscope.trace_dir="$SMOKE_DIR" \
+      $PHP -d extension="$SO" -d periscope.verbose=1 -d periscope.trace_dir="$SMOKE_DIR" \
         -r 'echo "ok\n";' >/dev/null 2>&1
 
     # Daemon needs a moment to flush its tracing.

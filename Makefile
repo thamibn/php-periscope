@@ -47,8 +47,8 @@ extension-clean:
 clean: extension-clean
 
 test:
-	cd extension && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 $(MAKE) test TESTS="tests/"
-	@bash scripts/smoke.sh
+	cd extension && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 $(MAKE) test TESTS="-d periscope.verbose=1 tests/"
+	@PERISCOPE_VERBOSE=1 bash scripts/smoke.sh
 	@bash scripts/smoke-laravel-adapter.sh
 
 smoke-laravel:
