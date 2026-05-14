@@ -12,6 +12,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.9</h3>
+        <ul>
+            <li><b>Fix ClassCastException on Debug click</b> — when picking the line-breakpoint type, we were casting an <em>instance</em> directly to <code>Class&lt;...&gt;</code> (forgot the <code>.javaClass</code>), and picking <code>firstOrNull()</code> arbitrarily got us non-PHP types on systems with multiple debuggers loaded (Oracle SQL was breaking it on Database-plugin users). Now resolves PHP-specific type and casts <code>.javaClass</code> properly.</li>
+        </ul>
         <h3>0.1.8</h3>
         <ul>
             <li><b>Fix "periscope-daemon not found on PATH" when the IDE is launched from Finder/Dock</b>. macOS GUI apps inherit a minimal PATH (<code>/usr/bin:/bin:/usr/sbin:/sbin</code>) that doesn't include Homebrew's <code>/opt/homebrew/bin</code>. The pre-flight check now falls back to well-known install locations (<code>/opt/homebrew/bin</code>, <code>/usr/local/bin</code>, <code>~/.local/bin</code>) when the binary isn't on PATH, and rewrites the run-config to use the absolute path so the subprocess spawn uses it too.</li>

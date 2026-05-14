@@ -146,18 +146,12 @@ class PeriscopeDebuggerRunner : AsyncProgramRunner<com.intellij.execution.config
         val session: XDebugSession = XDebuggerManager.getInstance(environment.project)
             .startSession(environment, object : XDebugProcessStarter() {
                 override fun start(session: XDebugSession): XDebugProcess {
-                    @Suppress("UNCHECKED_CAST")
-                    val anyLineBreakpointType =
-                        com.intellij.xdebugger.XDebuggerUtil.getInstance().lineBreakpointTypes
-                            .firstOrNull() as Class<out XLineBreakpointType<*>>?
-                            ?: error("No XLineBreakpointType registered in PhpStorm")
-
                     return PeriscopeDebugProcess(
                         session = session,
                         daemonPath = config.daemonPath,
                         tracePath = tracePath.toString(),
                         stopOnEntry = config.stopOnEntry,
-                        breakpointType = anyLineBreakpointType,
+                        breakpointType = resolvePhpLineBreakpointType(),
                     )
                 }
             })
@@ -247,6 +241,38 @@ class PeriscopeDebuggerRunner : AsyncProgramRunner<com.intellij.execution.config
 
     private fun CoroutineScope.cancel() {
         (this as? CoroutineScope)?.coroutineContext?.get(Job)?.cancel()
+    }
+
+    /**
+     * Pick the PHP line-breakpoint type. PhpStorm has *many* registered
+     * line-breakpoint types — PHP, JavaScript, SQL/Oracle, etc. — and
+     * `XBreakpointHandler` registers for one specific type. The previous
+     * version picked `lineBreakpointTypes.firstOrNull()` which gave
+     * whichever type happened to load first; on this user's install that
+     * was `OraLineBreakpointType` from the Database plugin. We need the
+     * PHP one so the handler actually catches breakpoints in `.php` files.
+     *
+     * Strategy:
+     *   * Filter the available types for one whose class name contains
+     *     "Php" (case-insensitive). This is brittle but works against
+     *     PhpStorm 2024.2 - 2025.3 inclusive — the platform's PHP plugin
+     *     has always named it `PhpLineBreakpointType` and friends.
+     *   * Fall back to the first available type only if PHP isn't there,
+     *     which can only happen if the `com.jetbrains.php` plugin is
+     *     somehow not loaded — our plugin.xml declares it as `<depends>`,
+     *     so this fallback should be unreachable in practice.
+     *
+     * The cast is unchecked but correct: every `XLineBreakpointType<*>`
+     * instance's runtime class is a `Class<out XLineBreakpointType<*>>`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun resolvePhpLineBreakpointType(): Class<out XLineBreakpointType<*>> {
+        val util = com.intellij.xdebugger.XDebuggerUtil.getInstance()
+        val phpType = util.lineBreakpointTypes
+            .firstOrNull { it.javaClass.name.contains("Php", ignoreCase = true) }
+            ?: util.lineBreakpointTypes.firstOrNull()
+            ?: error("No XLineBreakpointType registered in PhpStorm")
+        return phpType.javaClass as Class<out XLineBreakpointType<*>>
     }
 
     private fun notify(project: Project, message: String, type: NotificationType) {
