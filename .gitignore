@@ -58,6 +58,15 @@ vscode-extension/*.vsix
 *.cptrace
 .playwright-mcp/
 
-# Screenshots — never commit; reference images live outside the repo
-/*.png
-clockwork-*.png
+# Screenshots — never commit; reference images live outside the repo.
+# Repo-wide ban (any depth) so a forgotten screenshot in any subtree is
+# automatically ignored.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.heic
+
+# Wrangler / Cloudflare Pages local state (created by `wrangler pages deploy`)
+.wrangler/
