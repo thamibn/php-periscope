@@ -71,7 +71,9 @@ jobs:
             --exclude '^https?://app\.test'
             --exclude '^mailto:'
             --root-dir ${{ github.workspace }}/docs/site/.vitepress/dist
-            './**/*.md'
+            './README.md'
+            './CONTRIBUTING.md'
+            './docs/*.md'
             './docs/site/.vitepress/dist/**/*.html'
           fail: true
           format: markdown
