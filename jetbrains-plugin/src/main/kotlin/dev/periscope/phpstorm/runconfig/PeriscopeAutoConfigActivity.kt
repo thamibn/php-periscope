@@ -8,6 +8,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import dev.periscope.phpstorm.settings.PeriscopeApplicationSettings
 
 /**
  * Zero-config UX on **first** project open — strictly one-shot per project.
@@ -27,6 +28,9 @@ class PeriscopeAutoConfigActivity : ProjectActivity {
 
     override suspend fun execute(project: Project) {
         if (project.isDisposed) return
+
+        // Global kill-switch — Settings → Tools → Periscope → "Auto-create…"
+        if (!PeriscopeApplicationSettings.getInstance().autoSeedRunConfig) return
 
         val runManager = RunManager.getInstance(project)
         val type = PeriscopeRunConfigurationType()

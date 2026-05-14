@@ -31,6 +31,13 @@
         <notificationGroup id="Periscope" displayType="BALLOON"/>
         <postStartupActivity
             implementation="dev.periscope.phpstorm.runconfig.PeriscopeAutoConfigActivity"/>
+        <applicationService
+            serviceImplementation="dev.periscope.phpstorm.settings.PeriscopeApplicationSettings"/>
+        <applicationConfigurable
+            parentId="tools"
+            id="dev.periscope.phpstorm.settings.PeriscopeConfigurable"
+            displayName="Periscope"
+            instance="dev.periscope.phpstorm.settings.PeriscopeConfigurable"/>
     </extensions>
 
     <actions>
