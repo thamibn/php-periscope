@@ -12,6 +12,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.8</h3>
+        <ul>
+            <li><b>Fix "periscope-daemon not found on PATH" when the IDE is launched from Finder/Dock</b>. macOS GUI apps inherit a minimal PATH (<code>/usr/bin:/bin:/usr/sbin:/sbin</code>) that doesn't include Homebrew's <code>/opt/homebrew/bin</code>. The pre-flight check now falls back to well-known install locations (<code>/opt/homebrew/bin</code>, <code>/usr/local/bin</code>, <code>~/.local/bin</code>) when the binary isn't on PATH, and rewrites the run-config to use the absolute path so the subprocess spawn uses it too.</li>
+        </ul>
         <h3>0.1.7</h3>
         <p>Six bugs found in a v0.1.6 audit, plus two features previously deferred to v0.2.</p>
         <ul>

@@ -68,7 +68,12 @@ class PeriscopeDebuggerRunner : AsyncProgramRunner<com.intellij.execution.config
         // binary surfaced as a debug-window-open-then-close with no visible
         // error — the same silent-failure class as the getState() null bug
         // fixed in v0.1.6.
-        checkDaemonExists(config.daemonPath)
+        //
+        // Side effect: if found in a well-known location (e.g. /opt/homebrew/bin
+        // on macOS, where the IDE-app PATH normally doesn't reach), the
+        // config's daemonPath is rewritten to the absolute path so the
+        // subprocess spawn uses it directly.
+        checkDaemonExists(config)
 
         val explicit = config.tracePath.trim()
         val traceDir = config.traceDir.ifBlank { PeriscopeRunConfigurationOptions.DEFAULT_TRACE_DIR }
@@ -160,8 +165,25 @@ class PeriscopeDebuggerRunner : AsyncProgramRunner<com.intellij.execution.config
         return org.jetbrains.concurrency.resolvedPromise(session.runContentDescriptor)
     }
 
-    private fun checkDaemonExists(daemonPath: String) {
-        // If the user typed an absolute path, just check it.
+    /**
+     * Resolves the daemon binary location and validates it's executable.
+     *
+     * On macOS, IDE apps launched from Finder/Dock get a minimal PATH
+     * (`/usr/bin:/bin:/usr/sbin:/sbin`) — Homebrew's `/opt/homebrew/bin`
+     * isn't in it. PATH lookup alone misses installs there. So when the
+     * shell PATH doesn't have it, we fall back to a list of well-known
+     * install prefixes that match what `scripts/install.sh` actually
+     * uses on macOS and Linux.
+     *
+     * If we find the daemon in a fallback location, we **rewrite the
+     * config's daemonPath** to that absolute path so subsequent
+     * subprocess spawns find it too (ProcessBuilder uses the same
+     * minimal PATH).
+     */
+    private fun checkDaemonExists(config: PeriscopeRunConfiguration) {
+        val daemonPath = config.daemonPath
+
+        // 1. Absolute path → just check it.
         val pathFile = File(daemonPath)
         if (pathFile.isAbsolute) {
             if (!pathFile.canExecute()) {
@@ -172,22 +194,38 @@ class PeriscopeDebuggerRunner : AsyncProgramRunner<com.intellij.execution.config
             }
             return
         }
-        // Otherwise walk PATH the same way the shell would. ProcessBuilder
-        // does this internally, but does so silently — by the time start()
-        // throws IOException("No such file"), our debug window is already
-        // open and the failure is hard to attribute.
+
+        // 2. PATH walk.
         val pathEnv = System.getenv("PATH") ?: ""
-        val found = pathEnv.split(File.pathSeparator)
+        val onPath = pathEnv.split(File.pathSeparator)
             .asSequence()
             .filter { it.isNotEmpty() }
             .map { File(it, daemonPath) }
             .firstOrNull { it.canExecute() }
-        if (found == null) {
-            throw ExecutionException(
-                "periscope-daemon not found on PATH (looked for '$daemonPath'). " +
-                    "Install it via the install.sh one-liner, or set an absolute path in the Daemon binary field.",
-            )
+        if (onPath != null) return
+
+        // 3. Well-known install locations. install.sh installs to
+        //    /opt/homebrew/bin on Apple Silicon Macs, /usr/local/bin on
+        //    Intel Macs and Linux, and ~/.local/bin if PREFIX was
+        //    overridden by the user. We rewrite the config so the
+        //    rest of the launch sees the absolute path.
+        val home = System.getProperty("user.home") ?: ""
+        val fallbacks = listOf(
+            "/opt/homebrew/bin/$daemonPath",
+            "/usr/local/bin/$daemonPath",
+            "$home/.local/bin/$daemonPath",
+        )
+        val found = fallbacks.map { File(it) }.firstOrNull { it.canExecute() }
+        if (found != null) {
+            config.daemonPath = found.absolutePath
+            return
         }
+
+        throw ExecutionException(
+            "periscope-daemon not found (looked for '$daemonPath' on PATH and in " +
+                "/opt/homebrew/bin, /usr/local/bin, ~/.local/bin). " +
+                "Install it via the install.sh one-liner, or set an absolute path in the Daemon binary field.",
+        )
     }
 
     /**

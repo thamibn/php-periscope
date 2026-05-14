@@ -2,7 +2,7 @@
   "name": "php-periscope",
   "displayName": "PHP Periscope",
   "description": "Live observability + time-travel debugger for PHP/Laravel. Scrub through any HTTP request, see every SQL/log/cache/job/event, and inspect captured variables at every frame.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "periscopephp",
   "license": "MIT",
   "homepage": "https://github.com/thamibn/php-periscope",

@@ -800,6 +800,48 @@ install_vscode_extension() {
 
   # Clean up the temp dir we created; leave the contributor's local build alone.
   [[ -n "${vsix_tmpdir:-}" ]] && rm -rf "$vsix_tmpdir" || true
+
+  # Sweep stale extension version dirs. VSCode keeps every version it has
+  # ever installed under ~/.vscode/extensions/periscopephp.php-periscope-X.Y.Z
+  # — only the newest one is loaded but the older dirs accumulate forever.
+  # Resolve the editor's extensions dir from the CLI binary path, then keep
+  # only the dir whose name matches the version we just installed.
+  cleanup_stale_vsix_versions "$code_cli" "$label"
+}
+
+cleanup_stale_vsix_versions() {
+  local code_cli="$1" label="$2"
+  # Heuristic: code/cursor CLI typically lives in <root>/bin/<cmd>; the
+  # extensions folder is at $HOME/.{code,cursor}/extensions. Use the CLI
+  # name as the discriminator.
+  local cli_base
+  cli_base="$(basename "$code_cli")"
+  local ext_dir=""
+  case "$cli_base" in
+    code)         ext_dir="$HOME/.vscode/extensions" ;;
+    cursor)       ext_dir="$HOME/.cursor/extensions" ;;
+    code-insiders) ext_dir="$HOME/.vscode-insiders/extensions" ;;
+    windsurf)     ext_dir="$HOME/.windsurf/extensions" ;;
+    *)            ext_dir="" ;;
+  esac
+  [[ -z "$ext_dir" ]] && return 0
+  [[ -d "$ext_dir" ]] || return 0
+
+  # Newest version dir wins (sort by mtime). Delete all the others.
+  local newest=""
+  newest="$(ls -t -d "$ext_dir"/periscopephp.php-periscope-* 2>/dev/null | head -1 || true)"
+  [[ -z "$newest" ]] && return 0
+
+  local stale_count=0
+  for d in "$ext_dir"/periscopephp.php-periscope-*; do
+    [[ -d "$d" ]] || continue
+    [[ "$d" = "$newest" ]] && continue
+    rm -rf "$d"
+    stale_count=$((stale_count + 1))
+  done
+  if (( stale_count > 0 )); then
+    ok "$label: cleaned up $stale_count stale extension version(s)"
+  fi
 }
 
 if [[ ${#VSCODE_CLIS[@]} -eq 0 ]]; then
