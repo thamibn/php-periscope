@@ -33,7 +33,7 @@ What v1 deliberately does *not* do. Each item maps to a future-version commitmen
 ## Daemon / UI
 
 - **Single-machine.** The daemon serves one port (`localhost:9999`). There's no clustering, no multi-tenant mode, no auth at the HTTP API in v1 (the daemon assumes it's behind localhost). Production deployments must use the Laravel adapter's UI mount with the `UiGate` token.
-- **No PhpStorm UX polish.** DAP works in PhpStorm via the standard DAP plugin, but the JetBrains-native experience (Run/Debug configurations, gutter affordances) is v2 work.
+- **No first-class PhpStorm plugin in v1.** PhpStorm 2024.2+ can drive periscope today via [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) — see the [PhpStorm guide](/guide/phpstorm) for setup. Native JetBrains UX (gutter affordances, run-config templates, embedded tool window) is deferred to v2 unless beta demand pulls it earlier.
 - **No OpenTelemetry export.** Cap'n Proto on disk; periscope-internal protocol over HTTP/WS. v2.
 
 ## AI features

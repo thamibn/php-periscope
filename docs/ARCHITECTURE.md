@@ -207,7 +207,8 @@ Production safety is its own engineering project — sampling, non-blocking paus
 Async PHP runtimes break the "one trace per request, one thread" model. Each one (Fibers, Swoole, Frankenphp) needs its own integration work. Single-thread is the 80% case for Laravel apps; ship that first.
 
 ### Why no DBGp compatibility shim
-Some users will ask for "Xdebug-compatible mode" so PhpStorm Just Works. We don't ship this because:
-1. PhpStorm's first-class debugger speaks DBGp, not DAP — but PhpStorm doesn't ship a first-party DAP plugin either. A periscope-PhpStorm story requires either a DBGp bridge (which we won't build) or a dedicated PhpStorm plugin (v2 work, see roadmap)
-2. Maintaining two protocol implementations doubles the maintenance burden
-3. DBGp's XML-over-TCP is awful and we don't want to reward it
+Some users will ask for "Xdebug-compatible mode" so PhpStorm Just Works. We don't ship a DBGp bridge because:
+1. **There's a cleaner reuse path** — [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) (Red Hat's free DAP client plugin for IntelliJ-platform IDEs, PhpStorm 2024.2+) connects to `periscope-daemon --dap-stdio` today. Setup is a docs page, not protocol code. See [PhpStorm guide](https://github.com/thamibn/php-periscope/blob/main/docs/site/guide/phpstorm.md) and [`v1.2` on the roadmap](ROADMAP.md).
+2. Maintaining two protocol implementations doubles the maintenance burden — every new debug feature we add would need DAP *and* DBGp implementations.
+3. DBGp is XML-over-TCP from 2003. It's also opcode-step-oriented; we're frame-level. The semantic mismatch means every DBGp `step_into` would need translation logic for what doesn't map.
+4. A custom JetBrains plugin (Kotlin, deferred to v2) would give native UX without the protocol detour. v1.2's LSP4IJ path is the no-code-required interim.

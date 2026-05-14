@@ -53,11 +53,14 @@
 - Public PECL release (`pecl install periscope`)
 - Public Homebrew tap repo
 
+### Deferred to v1.2 (docs-only)
+- PhpStorm-via-LSP4IJ setup guide. PhpStorm doesn't ship a first-party DAP client; [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) (Red Hat) does. The v1.2 ship is a single docs page — no daemon code changes, no DBGp bridge (per ARCHITECTURE decision §3).
+
 ### Deferred to v2
 - Production debugging (sampling, snapshot breakpoints, non-blocking pause)
 - Variable mutation tracking (assignment-level, not just function-boundary)
 - OpenTelemetry export
-- PhpStorm-specific UX polish (run/debug configurations, gutter affordances). DAP is third-party-plugin only on PhpStorm today.
+- **First-class JetBrains plugin** — gutter affordances, run-config templates, embedded tool window. Only if v1.2's LSP4IJ-reuse path leaves a real UX gap that beta demand validates.
 - Custom non-DAP protocol (designed for if/when DAP becomes a ceiling)
 - Symfony / WordPress / CodeIgniter / plain-PHP adapter packages
 - Async runtime support: Fibers, Swoole, ReactPHP, FrankenPHP, Octane

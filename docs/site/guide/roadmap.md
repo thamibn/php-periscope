@@ -45,11 +45,17 @@ What's shipping today:
 ## v1.1.0 — Quick wins
 
 - PHP 8.1 + 8.2 support.
+- Laravel 11.x support — pending `laravel/mcp` widening its `illuminate/json-schema` dep or shipping a vendored fallback.
 - Self-hosted trace sharing (`periscope-share` Rust binary + `Mcp::web()` mode).
 - Sampling profiler — opcode-level zoom, opt-in, 1-week sprint.
 - Safe-mode dry-run: opt-in `PERISCOPE_DRYRUN=true` that wraps the request in a DB transaction rolled back at RSHUTDOWN, stubs Mail/Queue/HTTP.
-- VSCode extension polish (JetBrains-native UX).
 - The dropped failed-jobs panel, if user demand surfaces.
+
+## v1.2.0 — PhpStorm via LSP4IJ
+
+- Docs-only ship — see [PhpStorm (via LSP4IJ)](/guide/phpstorm).
+- Periscope's DAP daemon already works in PhpStorm via [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij). v1.2 documents the setup and pins the support contract: breakpoints, step over/into/out, variables, watches, evaluate all work; IDE-side `stepBack` is gated on LSP4IJ upstream. The browser UI scrubber remains the canonical time-travel surface.
+- Optional follow-up: upstream PR to redhat-developer/lsp4ij adding `stepBack` / `reverseContinue` request handling.
 
 ## v2.0.0 — Bigger surface
 
@@ -60,7 +66,7 @@ What's shipping today:
 - Per-opcode timing (sampling-based, opt-in).
 - Variable mutation tracking between captures.
 - OpenTelemetry export.
-- PhpStorm-specific UX polish (gutter affordances, run configurations).
+- **First-class JetBrains plugin** (gutter affordances, run-config templates, embedded tool window). Only if beta demand justifies it — LSP4IJ-based reuse path covers ~80% of the UX in v1.2.
 - Closures / references / circular references — perfect-fidelity capture.
 
 ## Out of scope, permanently

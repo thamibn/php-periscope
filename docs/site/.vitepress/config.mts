@@ -48,6 +48,13 @@ export default defineConfig({
           ],
         },
         {
+          text: "IDE setup",
+          collapsed: false,
+          items: [
+            { text: "PhpStorm (via LSP4IJ)", link: "/guide/phpstorm" },
+          ],
+        },
+        {
           text: "Reference",
           collapsed: false,
           items: [

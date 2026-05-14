@@ -50,7 +50,21 @@ All twelve plan phases in [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.m
 3. **Self-hosted trace sharing** — `periscope-share` binary + `Mcp::web()` registration
 4. **Sampling profiler** — opcode-level zoom, opt-in (1-week sprint)
 5. **Safe-mode dry-run** — `PERISCOPE_DRYRUN=true` wraps requests in a DB transaction rolled back at RSHUTDOWN; stubs Mail / Queue / HTTP
-6. **VSCode extension polish** — gutter affordances, run/debug configurations
+
+## v1.2 — PhpStorm via LSP4IJ (docs-only)
+
+PhpStorm 2024.2+ can talk to `periscope-daemon` today via [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) (Red Hat's open-source DAP client for IntelliJ-platform IDEs). v1.2 is a single docs page (`docs/site/guide/phpstorm.md`) and zero new daemon code — no DBGp bridge (would violate ARCHITECTURE.md decision §3), no custom JetBrains plugin (deferred to v2 if beta demand surfaces).
+
+What works in PhpStorm today via LSP4IJ:
+- Breakpoints (standard, conditional, exception)
+- Step over / step into / step out
+- Variables, watches, expression evaluate
+
+What doesn't (yet) — LSP4IJ upstream gaps:
+- IDE-side `stepBack` / `reverseContinue` — browser UI scrubber covers it
+- Native PhpStorm UX (gutter, run-config templates) — that's a custom plugin, v2 territory
+
+Optional follow-up: PR to `redhat-developer/lsp4ij` adding `stepBack` request handling. Unlocks the IDE-side back-arrow for every periscope user and any other reverse-debug-capable DAP server.
 
 ## v2 priorities
 
@@ -59,7 +73,7 @@ All twelve plan phases in [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.m
 3. **Symfony adapter package** — separate Composer package
 4. **WordPress adapter package**
 5. **Async runtime support** — Fibers, Swoole, FrankenPHP, RoadRunner, Octane
-6. **PhpStorm polish** — first-class JetBrains plugin
+6. **First-class JetBrains plugin** — gutter affordances, run-config templates, embedded tool window. Only if v1.2's LSP4IJ-reuse path leaves a real UX gap that beta demand validates.
 7. **Variable mutation tracking** — assignment-level snapshots
 8. **Cross-process tracing** — follow a request from web → queue worker → web again
 
