@@ -37,8 +37,31 @@ jobs:
       - name: Build extension
         run: make extension
 
+      - name: Diagnose extension load (capture dlopen errors)
+        run: |
+          set +e
+          SO="$PWD/extension/modules/periscope.so"
+          echo "==> php --version"
+          php --version
+          echo "==> ldd / otool on $SO"
+          (ldd "$SO" || otool -L "$SO") 2>&1 | head -30
+          echo "==> php -d extension=$SO -m (stderr merged)"
+          php -d extension="$SO" -m 2>&1
+          echo "==> exit=$?"
+
       - name: Run .phpt suite
         run: make test
+
+      - name: Upload .phpt diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpt-diffs-${{ matrix.os }}
+          path: |
+            extension/tests/**/*.diff
+            extension/tests/**/*.out
+            extension/tests/**/*.log
+          if-no-files-found: ignore
 
       - name: Smoke tests
         run: bash scripts/smoke.sh
