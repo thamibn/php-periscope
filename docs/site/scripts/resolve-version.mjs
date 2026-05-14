@@ -23,7 +23,19 @@ async function resolveVersion() {
     return process.env.DOCS_VERSION;
   }
 
-  // Try GitHub API first — always returns the latest *published* release.
+  // GitHub Actions tag push: GITHUB_REF_NAME is the tag itself (e.g. "v0.1.5").
+  // This MUST be checked before the API call — when a release tag is pushed,
+  // the JetBrains+VSCode workflows attach artifacts in parallel, so the API's
+  // "latest release" can lag by minutes. Trust the ref we were invoked with.
+  if (
+    process.env.GITHUB_REF_TYPE === "tag" &&
+    typeof process.env.GITHUB_REF_NAME === "string" &&
+    process.env.GITHUB_REF_NAME.startsWith("v")
+  ) {
+    return process.env.GITHUB_REF_NAME;
+  }
+
+  // GitHub API — for branch builds where no tag context exists.
   try {
     const res = await fetch(
       "https://api.github.com/repos/thamibn/php-periscope/releases/latest",
