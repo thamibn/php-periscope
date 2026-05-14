@@ -13,7 +13,7 @@ without inheriting LSP4IJ's ~20k LOC of language-server-protocol surface area.
 ```bash
 cd jetbrains-plugin
 ./gradlew buildPlugin
-# produces build/distributions/periscope-jetbrains-0.1.0-alpha.zip
+# produces build/distributions/periscope-jetbrains-0.1.0.zip
 ```
 
 ## Sideload into PhpStorm

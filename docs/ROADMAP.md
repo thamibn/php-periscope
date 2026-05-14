@@ -2,7 +2,7 @@
 
 Source-of-truth roadmap. The user-facing version lives at [`docs/site/guide/roadmap.md`](site/guide/roadmap.md).
 
-## Where we are: v0.1.0-alpha
+## Where we are: v0.1.0
 
 All twelve plan phases in [`thoughts/shared/plans/2026-05-08-php-periscope-mvp.md`](../thoughts/shared/plans/2026-05-08-php-periscope-mvp.md) have shipped. Git log is authoritative; the shipped surface includes:
 

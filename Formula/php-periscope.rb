@@ -15,7 +15,7 @@ class PhpPeriscope < Formula
   homepage "https://github.com/thamibn/php-periscope"
   url "https://github.com/thamibn/php-periscope/archive/refs/tags/v0.1.0.tar.gz"
   version "0.1.0"
-  # Update sha256 at release time; placeholder for the v0.1.0-dev branch.
+  # Update sha256 at release time; placeholder for the v0.1.0 branch.
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
 

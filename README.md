@@ -10,7 +10,7 @@
 
 A live observability + time-travel debugger built **for Laravel**. Pause any request, see every variable, query, log, job, event, cache hit, Redis command, and HTTP call that led to that line — and scrub backward in time. **Xdebug-tier debugging plus Telescope-tier observability, in one live UI, with an AI co-pilot.**
 
-**Status:** v0.1.0-alpha. All twelve plan phases shipped — C extension, Rust daemon, SolidJS UI, Laravel adapter, MCP server (AI-native), install/uninstall scripts, PECL package, VSCode extension scaffold, Homebrew formula, docs site, CI workflows. Real-world test harness (Phase 10) is next.
+**Status:** v0.1.0. All twelve plan phases shipped — C extension, Rust daemon, SolidJS UI, Laravel adapter, MCP server (AI-native), install/uninstall scripts, PECL package, VSCode extension scaffold, Homebrew formula, docs site, CI workflows. Real-world test harness (Phase 10) is next.
 
 ## Quickstart
 
