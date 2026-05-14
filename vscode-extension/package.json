@@ -2,7 +2,7 @@
   "name": "php-periscope",
   "displayName": "PHP Periscope",
   "description": "Live observability + time-travel debugger for PHP/Laravel. Scrub through any HTTP request, see every SQL/log/cache/job/event, and inspect captured variables at every frame.",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "publisher": "periscopephp",
   "license": "MIT",
   "homepage": "https://github.com/thamibn/php-periscope",
@@ -17,8 +17,18 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Debuggers"],
-  "keywords": ["php", "laravel", "debugger", "telescope", "xdebug", "observability", "time-travel"],
+  "categories": [
+    "Debuggers"
+  ],
+  "keywords": [
+    "php",
+    "laravel",
+    "debugger",
+    "telescope",
+    "xdebug",
+    "observability",
+    "time-travel"
+  ],
   "main": "./out/extension.js",
   "activationEvents": [
     "onDebugResolve:periscope",
@@ -28,13 +38,17 @@
   ],
   "contributes": {
     "breakpoints": [
-      { "language": "php" }
+      {
+        "language": "php"
+      }
     ],
     "debuggers": [
       {
         "type": "periscope",
         "label": "PHP Periscope",
-        "languages": ["php"],
+        "languages": [
+          "php"
+        ],
         "configurationAttributes": {
           "launch": {
             "properties": {

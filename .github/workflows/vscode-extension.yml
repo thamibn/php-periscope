@@ -1,0 +1,82 @@
+name: VSCode extension
+
+# Builds the VSCode extension under vscode-extension/ into a .vsix on every
+# push that touches the extension or this workflow, and on every release tag.
+# Tag builds also attach the .vsix to the corresponding GitHub Release so the
+# install.sh one-liner can fetch it from releases/latest/download/.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/vscode-extension.yml"
+    # Always rebuild + attach on a release tag. The previous flow uploaded
+    # .vsix files manually; this automates the release pipeline so install.sh
+    # never 404s the VSCode artifact again.
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main]
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/vscode-extension.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write  # needed to attach the .vsix to a Release on tag pushes
+
+concurrency:
+  group: vscode-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build .vsix
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      # vsce is the official VSCode extension packager. We use npx to avoid
+      # adding it as a dev-dep (the package.json only references the script).
+      - name: Package .vsix
+        run: npx --yes @vscode/vsce package --no-dependencies --out php-periscope.vsix
+
+      - name: Also produce a versioned filename
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          cp php-periscope.vsix "php-periscope-${version}.vsix"
+          ls -lah *.vsix
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-periscope-vsix
+          path: vscode-extension/*.vsix
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release (on tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vscode-extension/php-periscope.vsix
+            vscode-extension/php-periscope-*.vsix
+          fail_on_unmatched_files: false
+          generate_release_notes: false
