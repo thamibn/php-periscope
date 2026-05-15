@@ -17,6 +17,12 @@ import kotlinx.serialization.json.JsonObject
 @Serializable
 data class DapRequest(
     val seq: Int,
+    // DAP requires every message to carry `type` ("request" | "response" |
+    // "event"). The default value is correct, but `DapClient.JSON` has
+    // `encodeDefaults = false` which would strip the field from the wire —
+    // and the daemon rejects requests with `missing field \`type\`` at
+    // line 1 column 47. Force-encode this field always.
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
     val type: String = "request",
     val command: String,
     val arguments: JsonElement? = null,
@@ -25,6 +31,7 @@ data class DapRequest(
 @Serializable
 data class DapResponse(
     val seq: Int,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
     val type: String = "response",
     @SerialName("request_seq") val requestSeq: Int,
     val success: Boolean,
@@ -36,6 +43,7 @@ data class DapResponse(
 @Serializable
 data class DapEvent(
     val seq: Int,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
     val type: String = "event",
     val event: String,
     val body: JsonObject? = null,

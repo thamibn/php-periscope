@@ -139,7 +139,7 @@ class DapClient(
             // stdout) would otherwise escape the loop and leave `pending`
             // deferreds dangling forever. We always want shutdownPending() to
             // run on any reader-side failure.
-            onLog("DAP reader error: ${e.javaClass.simpleName}: ${e.message}")
+            onLog("DAP reader error: ${e.javaClass.simpleName}: ${e.message}\n")
         } finally {
             shutdownPending()
             isAlive = false
@@ -190,7 +190,7 @@ class DapClient(
         // accidental stderr-on-stdout leakage from the daemon.
         val element = JSON.parseToJsonElement(json) as? JsonObject
         if (element == null) {
-            onLog("DAP: dropping non-object message: ${json.take(200)}")
+            onLog("DAP: dropping non-object message: ${json.take(200)}\n")
             return
         }
         when (element["type"]?.toString()?.trim('"')) {
@@ -202,15 +202,18 @@ class DapClient(
                 val evt = JSON.decodeFromString<DapEvent>(json)
                 scope.launch { _events.emit(evt) }
             }
-            else -> onLog("DAP: unknown message type: $json")
+            else -> onLog("DAP: unknown message type: $json\n")
         }
     }
 
     private suspend fun stderrLoop() {
         val reader = proc.errorStream.bufferedReader(StandardCharsets.UTF_8)
         try {
+            // `useLines` strips the trailing newline; we need to re-append it
+            // when forwarding to onLog so the ConsoleView renders each line
+            // on its own row instead of running them together.
             reader.useLines { lines ->
-                for (line in lines) onLog("[daemon] $line")
+                for (line in lines) onLog("[daemon] $line\n")
             }
         } catch (_: IOException) {}
     }

@@ -12,6 +12,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.1.10</h3>
+        <ul>
+            <li><b>Fix DAP handshake</b> — daemon was rejecting <code>initialize</code> with <code>missing field 'type'</code>. <code>DapClient.JSON</code> has <code>encodeDefaults = false</code>, which silently stripped the <code>type</code> field (default <code>"request"</code>) from outgoing messages. Added <code>@EncodeDefault(ALWAYS)</code> to force the field onto the wire for all DAP message types.</li>
+            <li><b>Fix daemon console output running together on one line</b> — <code>useLines</code> strips the trailing newline; we now re-append <code>\n</code> when forwarding to the ConsoleView so each line renders on its own row.</li>
+        </ul>
         <h3>0.1.9</h3>
         <ul>
             <li><b>Fix ClassCastException on Debug click</b> — when picking the line-breakpoint type, we were casting an <em>instance</em> directly to <code>Class&lt;...&gt;</code> (forgot the <code>.javaClass</code>), and picking <code>firstOrNull()</code> arbitrarily got us non-PHP types on systems with multiple debuggers loaded (Oracle SQL was breaking it on Database-plugin users). Now resolves PHP-specific type and casts <code>.javaClass</code> properly.</li>
