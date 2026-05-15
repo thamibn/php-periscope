@@ -175,7 +175,15 @@ fn resolve_ui_dir(explicit: Option<PathBuf>, project_root: &PathBuf) -> Option<P
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_env("PERISCOPE_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    // CRITICAL: route logs to stderr. When the daemon runs with --dap-stdio
+    // the stdout stream is the DAP protocol channel — any tracing line
+    // written to stdout corrupts the next message frame (the IDE plugin
+    // reads it as a DAP envelope, finds no Content-Length header, and the
+    // session dies). Stderr is the universally correct sink for diagnostic
+    // logs anyway; install.sh's --version probe + the HTTP/socket modes
+    // are unaffected by this change.
     let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(filter)
         .with_target(false)
         .try_init();
